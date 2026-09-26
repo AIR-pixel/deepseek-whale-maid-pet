@@ -1,0 +1,41 @@
+MIT License
+
+Copyright (c) 2026 AIR-pixel
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-------------------------------------------------------------------------------
+
+适用范围（Scope）
+
+上面这份 MIT 许可证**只覆盖代码**：
+
+  - src/            （主程序、动效、音效播放、台词库）
+  - tools/          （素材流水线、音效合成、测试、打包脚本）
+  - 启动桌宠.bat
+  - assets/sfx/     （由 tools/make_sfx.py 纯程序合成，不含任何采样素材）
+
+以下**不适用** MIT，见 LICENSE-ASSETS：
+
+  - assets/pet/     （女仆鲸鱼娘立绘，角色二创作品）
+  - docs/           （README 用的横幅与预览图，由上述立绘派生）
+
+原因：角色形象依 CC BY-NC-SA 4.0 开放二创，该许可证的 ShareAlike 条款要求
+派生作品以相同方式共享，不能被 MIT 覆盖。所以本项目走**分拆授权**：
+代码宽松、素材保持原许可。

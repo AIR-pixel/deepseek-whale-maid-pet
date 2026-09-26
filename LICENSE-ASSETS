@@ -1,0 +1,84 @@
+立绘素材许可 · 女仆鲸鱼娘
+Asset License — Maid Whale-chan
+================================================================================
+
+本目录下 assets/pet/ 的 10 张立绘，以及 docs/ 中由它们派生的横幅与预览图，
+**不适用 MIT 许可证**，而是：
+
+    Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+    (CC BY-NC-SA 4.0)
+
+    许可证全文：https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode.zh-hans
+    人类可读摘要：https://creativecommons.org/licenses/by-nc-sa/4.0/deed.zh-hans
+
+--------------------------------------------------------------------------------
+署名链（请原样保留）
+--------------------------------------------------------------------------------
+
+  原创角色「溟月」           上善无形                        2025.06
+      └─ 以 CC BY-NC-SA 4.0 开放二创
+
+  女仆装 + DeepSeek 元素二创  ZipZipPipe                     2026.04
+      └─ 基于上述原创角色
+
+  桌宠立绘素材                 keleus/deepseek-pet             MIT（仅其代码部分）
+      └─ https://github.com/keleus/deepseek-pet
+
+  桌宠程序与素材再加工          air / AIR-pixel                 2026.09
+      └─ 本项目
+
+--------------------------------------------------------------------------------
+你可以做什么
+--------------------------------------------------------------------------------
+
+  ✓ 复制、传播、转载（包括商用平台上的非商业分享）
+  ✓ 修改、二次创作、重绘、换装、做新桌宠
+  ✓ 用于个人桌面、直播背景、同人视频
+
+  条件：
+    1. 署名（BY）        —— 保留上表中**完整**的署名链与许可证名，链接到本文件
+    2. 非商业（NC）      —— 不得用于盈利目的。直播打赏、付费壁纸包、周边贩卖、
+                            付费课程、广告分成等均属商业使用
+    3. 相同方式共享（SA）—— 你基于它做的二创，必须以 CC BY-NC-SA 4.0
+                            （或兼容许可证）发布，不得改挂 MIT / CC0 / 保留所有权利
+
+  无额外限制（No additional restrictions）：
+    不得用技术手段或法律条款，限制他人做本许可证允许的事。
+
+--------------------------------------------------------------------------------
+注意事项
+--------------------------------------------------------------------------------
+
+  · 商标与官方无关。DeepSeek 及相关标识归杭州深度求索人工智能基础技术研究
+    有限公司所有。本项目为**非官方同人作品**，与 DeepSeek 官方无任何关联、
+    未获其授权或背书。
+
+  · 音效不在此范围。assets/sfx/ 下的 WAV 由 tools/make_sfx.py 纯程序合成
+    （正弦/三角波 + 包络），不含任何采样素材，随代码按 MIT 授权。
+
+  · 代码不在此范围。src/、tools/、启动桌宠.bat 按 MIT 授权，见 LICENSE。
+
+  · 上游若另有声明以上游为准。若 keleus/deepseek-pet 或原创作者上善无形
+    另有更严格的要求，以他们的声明为准。
+
+--------------------------------------------------------------------------------
+English summary
+--------------------------------------------------------------------------------
+
+The character artwork in assets/pet/ (10 sprites) and the images in docs/
+derived from them are NOT covered by the MIT license. They are licensed under
+Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International.
+
+  You are free to share and adapt the material for non-commercial purposes,
+  provided you (1) give appropriate credit with a link to this license,
+  (2) do not use it commercially, and (3) distribute your contributions under
+  the same license.
+
+  Attribution chain: original character "溟月" by 上善无形 (2025.06, CC BY-NC-SA
+  4.0) → maid/DeepSeek redesign by ZipZipPipe (2026.04) → sprite assets from
+  keleus/deepseek-pet (MIT, code only) → desktop-pet program and asset
+  re-processing by air / AIR-pixel (2026.09).
+
+  This is an unofficial fan work. "DeepSeek" and its marks belong to Hangzhou
+  DeepSeek Artificial Intelligence Basic Technology Research Co., Ltd. No
+  affiliation with or endorsement by DeepSeek is claimed.

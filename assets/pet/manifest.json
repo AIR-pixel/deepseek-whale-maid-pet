@@ -1,0 +1,62 @@
+[
+  {
+    "name": "idle_open",
+    "w": 380,
+    "h": 512,
+    "bytes": 51948
+  },
+  {
+    "name": "idle_blink",
+    "w": 381,
+    "h": 512,
+    "bytes": 55444
+  },
+  {
+    "name": "work_keypress",
+    "w": 491,
+    "h": 512,
+    "bytes": 63786
+  },
+  {
+    "name": "work_desk",
+    "w": 556,
+    "h": 512,
+    "bytes": 74590
+  },
+  {
+    "name": "eat",
+    "w": 403,
+    "h": 512,
+    "bytes": 54414
+  },
+  {
+    "name": "doze",
+    "w": 399,
+    "h": 512,
+    "bytes": 52762
+  },
+  {
+    "name": "sleep",
+    "w": 464,
+    "h": 512,
+    "bytes": 56058
+  },
+  {
+    "name": "whale",
+    "w": 724,
+    "h": 512,
+    "bytes": 42724
+  },
+  {
+    "name": "blindfold",
+    "w": 499,
+    "h": 512,
+    "bytes": 60638
+  },
+  {
+    "name": "happy",
+    "w": 499,
+    "h": 512,
+    "bytes": 63090
+  }
+]

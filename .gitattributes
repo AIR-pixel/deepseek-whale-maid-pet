@@ -1,0 +1,22 @@
+# 行尾统一策略。
+#
+# 没有这个文件的话，仓库里换行符长什么样取决于每个提交者本机的 core.autocrlf，
+# 同一次 `git diff` 会整文件全红。更要命的是启动器：
+#
+#   启动桌宠.bat 是**纯 ASCII + CRLF** 写的（cmd 按 GBK 解析 UTF-8 中文会字节错位，
+#   而 LF-only 的 .bat 在标签跳转和 rem 注释上会出问题）。所以强制它进仓库也是
+#   CRLF、检出也是 CRLF，不随谁的本机设置变。
+
+* text=auto
+
+# Windows 批处理：必须 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制素材：一个字节都不许转，否则立绘/音效直接损坏
+*.webp binary
+*.wav  binary
+*.png  binary
+*.gif  binary
+*.zip  binary
+*.ttc  binary
