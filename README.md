@@ -8,11 +8,16 @@
 
 10 套独立动效 · 15 条程序合成音效 · 59 条台词 · 22 MB 免安装。
 
-| 想怎么用 | 拿哪个 |
+| 想怎么用 | 下载哪个 |
 |---|---|
-| **马上用，什么都不装** | [Releases](https://github.com/AIR-pixel/deepseek-whale-maid-pet/releases/latest) → `DeepSeek鲸鱼娘桌宠_自包含_<日期>.zip`（22 MB） |
-| 机器上已有 Python | Releases → `DeepSeek鲸鱼娘桌宠_<日期>.zip`（727 KB） |
+| **马上用，什么都不装** | [`DeepSeek-WhaleMaidPet_1.0.0_selfcontained.zip`](https://github.com/AIR-pixel/deepseek-whale-maid-pet/releases/latest/download/DeepSeek-WhaleMaidPet_1.0.0_selfcontained.zip) · 21.8 MB |
+| 机器上已有 Python 3.9+ | [`DeepSeek-WhaleMaidPet_1.0.0_source.zip`](https://github.com/AIR-pixel/deepseek-whale-maid-pet/releases/latest/download/DeepSeek-WhaleMaidPet_1.0.0_source.zip) · 727 KB |
 | 读代码 / 自己改 | `git clone` 本仓库，见下面「[运行](#运行)」 |
+
+> 附件名是 ASCII 的：GitHub 会把 Release 附件的 name 里**非 ASCII 字符替换成 `.`**
+> （`DeepSeek鲸鱼娘桌宠_自包含_20260926.zip` 传上去会变成 `DeepSeek._._20260926.zip`），
+> 所以这里换了英文名。**解压出来的目录名仍是中文** `DeepSeek鲸鱼娘桌宠`。
+> 全部版本见 [Releases](https://github.com/AIR-pixel/deepseek-whale-maid-pet/releases)。
 
 > 同人作品，**非商用**。代码 MIT、立绘素材 CC BY-NC-SA 4.0 —— 见「[署名与许可](#署名与许可)」。
 
