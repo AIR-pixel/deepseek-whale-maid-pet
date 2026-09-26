@@ -20,6 +20,7 @@
 > 全部版本见 [Releases](https://github.com/AIR-pixel/deepseek-whale-maid-pet/releases)。
 
 > 同人作品，**非商用**。代码 MIT、立绘素材 CC BY-NC-SA 4.0 —— 见「[署名与许可](#署名与许可)」。
+> 程序部分由 **DeepSeek（DeepSeek-V4.1-Flash）** 辅助开发 —— 见「[开发说明](#开发说明)」。
 
 ## 它动起来是什么样
 
@@ -305,6 +306,21 @@ Unicode 路径从 PyQt5 包的位置手动 `addLibraryPath()`。Python 的 str�
   `sfx.play(...)` / `_say(..., cue=...)`。`cue=None` 表示这次不出声。
 - **换播放后端**：只改 `src/sfx.py`。目前用 `QSoundEffect`（带音量、可叠加）；
   若某机器后端有问题，`winsound` + `SND_MEMORY` 是零依赖的退路，代价是没有音量控制。
+
+## 开发说明
+
+桌宠的**程序部分**由 **DeepSeek 模型（DeepSeek-V4.1-Flash）** 辅助开发：
+
+- `src/` 全部代码 —— 主程序、每个状态的动效曲线、音效播放、台词库
+- `tools/` 全部脚本 —— 素材处理流水线、音效合成、动效预览、冒烟测试、真机验证、
+  PE 导入表依赖闭包、两个打包器、端到端验收
+- 这份 README、打包流程与全部自检项
+
+需求与取舍是人提的，代码、调试、排错与文档有 DeepSeek 参与。立绘素材不是本项目绘制的，
+来自社区二创（署名见下）；角色形象本身就是 DeepSeek 的二创产物。
+
+> 这里致谢的是「把 DeepSeek 模型当作开发助手」这件事。
+> **不代表**本项目与 DeepSeek 官方存在任何关联，也未获其授权、赞助或背书。
 
 ## 署名与许可
 
