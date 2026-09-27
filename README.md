@@ -237,6 +237,13 @@ python tools/motion_regression.py check ref.json    # 改之后逐点比对
 
 之后所有开着"接收新内容"的用户，下次启动就会自动拿到。
 
+> **`content/` 里的 `.json` 必须是 LF 行尾。** 仓库的 `.gitattributes` 有 `* text=auto`，
+> `git add` 时会把 CRLF 规范化成 LF，所以**远端拿到的永远是 LF**；而清单里的 SHA256
+> 是拿本地文件算的。本地一旦是 CRLF，客户端下回来一比对就不符，`updater` 会判
+> "校验不通过"把整包丢掉——而且**静默**，用户那边只是永远收不到新内容。
+> 发布工具现在会强制以 LF 写出，并在发布前逐文件查 `\r`、命中就中止，
+> 所以正常情况下不会踩到；手工改过 `content/*.json` 后跑一次 `--check` 就能确认。
+
 一个新动作的最小样子：
 
 ```json
