@@ -71,9 +71,34 @@ def load_actions():
 
 
 def save_actions(data):
-    with open(ACTIONS, "w", encoding="utf-8") as f:
+    # newline="\n" **不能省**：Windows 上文本模式默认把 \n 写成 \r\n，
+    # 而 .gitattributes 的 `* text=auto` 会在 git add 时把 CRLF 规范化回 LF。
+    # 于是"本地算哈希的那份"和"远端实际下发的那份"就不是同一串字节，
+    # 客户端的 SHA256 校验必然不过。下面 check_eol() 还会再拦一道。
+    with open(ACTIONS, "w", encoding="utf-8", newline="\n") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
         f.write("\n")
+
+
+def check_eol(files):
+    """发布的 .json 必须是 LF 行尾 —— 这是客户端校验能否通过的前提。
+
+    为什么这是硬约束而不是风格问题：``.gitattributes`` 里 `* text=auto`
+    会在 ``git add`` 时把 CRLF 规范化成 LF，**远端拿到的永远是 LF**；
+    而清单里的 SHA256 是拿本地文件算的。本地一旦是 CRLF，清单记的就是 CRLF 的哈希，
+    客户端下回 LF 字节一比对必然不符，`updater` 判"校验不通过"→ 整包丢弃。
+    Windows 上 Python 文本模式默认就写 CRLF，离踩这个坑只差一次带 `--bump` 的发布。
+    所以把它做成**发布期就失败**，而不是上线后某天在用户那边静默失效。
+    """
+    bad = []
+    for rel in files:
+        if not rel.lower().endswith(".json"):
+            continue
+        path = os.path.join(CONTENT_DIR, *rel.split("/"))
+        with open(path, "rb") as f:
+            if b"\r" in f.read():
+                bad.append(rel)
+    return bad
 
 
 def validate(data):
@@ -149,6 +174,19 @@ def main():
         print(f"       {size / 1024:8.1f} KB  {rel}")
     print(f"     合计 {total / 1024:.0f} KB")
 
+    # 行尾检查必须排在递增版本号**之前**：不一致就整包作废，别留下"版本号涨了、
+    # 清单没更新"的半成品状态。
+    bad_eol = check_eol(files)
+    if bad_eol:
+        print("  FAIL 以下文件是 CRLF 行尾：")
+        for rel in bad_eol:
+            print("       -", rel)
+        print("       git 的 `* text=auto` 会把远端存成 LF，清单却记的是本地 CRLF 的")
+        print("       哈希 -> 客户端下回来一比对就不符，整包被丢弃。已中止。")
+        print("       修法：把这些文件另存为 LF 行尾后重跑（本工具的 --bump 会以 LF 重写）。")
+        return 1
+    print("  OK   行尾均为 LF（与远端规范化结果一致，哈希可比）")
+
     if args.check:
         print(f"\n[i] --check 模式：版本仍为 r{old_ver}，未写任何文件")
         return 0
@@ -180,7 +218,7 @@ def main():
         print("  FAIL 文件表里没有 actions.json —— 客户端不会认为这是一次有效更新")
         return 1
 
-    with open(MANIFEST, "w", encoding="utf-8") as f:
+    with open(MANIFEST, "w", encoding="utf-8", newline="\n") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
         f.write("\n")
     print(f"  OK   已写出 {os.path.relpath(MANIFEST, ROOT)}（{len(manifest['files'])} 个文件）")
