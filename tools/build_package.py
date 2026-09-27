@@ -2,22 +2,24 @@
 """打一个源码便携包（zip）+ 自检。
 
 只装"运行桌宠真正需要的东西"：
-    src/ · assets/ · config.json · 启动桌宠.bat · README.md
+    src/ · assets/ · content/ · config.json · 启动桌宠.bat · README.md
 
 不进包：预览图（preview_*.png/gif）、原始素材（ref_assets/）、开发工具（tools/）。
 
 config.json 用**默认值**而不是本机那份——里面存着窗口坐标，
 带到别的机器上虽然启动时会夹回屏幕内，但从默认的右下角开始更自然。
 
-打完立刻做五项校验（都是踩过的坑，所以固化下来）：
+打完立刻做六项校验（都是踩过的坑，所以固化下来）：
     1. 必需文件齐全
-    2. 贴图与音效条数对得上 manifest / 目录
+    2. 内容包声明的素材齐全、状态引用的帧都有定义
     3. 启动器仍是纯 ASCII + CRLF（zip 往返不该改变它，但不验证不放心）
     4. 包内 config.json 不带本机窗口坐标
     5. 解包出来的副本能真的加载素材、切状态、就绪音效
+    6. 远端清单（content/manifest.json）与包内文件哈希一致
 
 用法: python tools/build_package.py
 """
+import hashlib
 import json
 import os
 import shutil
@@ -32,12 +34,13 @@ ROOT = os.path.dirname(HERE)
 DIST = os.path.join(ROOT, "dist")
 
 TOP = "DeepSeek鲸鱼娘桌宠"          # zip 内的顶层目录
-INCLUDE_DIRS = ("src", "assets")
+INCLUDE_DIRS = ("src", "assets", "content")
 INCLUDE_FILES = ("启动桌宠.bat", "README.md")
 SKIP_DIRS = {"__pycache__", ".pytest_cache"}
 SKIP_EXT = {".pyc", ".pyo"}
 
-# 便携包里的 config.json：全用默认值，不带本机窗口坐标
+# 便携包里的 config.json：全用默认值，不带本机窗口坐标。
+# 刻意不带 update_consent —— 首次启动时跟用户打一次招呼再联网。
 PACKAGE_CFG = {
     "x": None, "y": None,
     "height": 280,
@@ -49,6 +52,7 @@ PACKAGE_CFG = {
     "mute_speech": False,
     "sfx": True,
     "sfx_volume": 0.6,
+    "auto_update": True,
 }
 
 FOOTER = """
@@ -140,6 +144,8 @@ def verify(zip_path, py):
 
     print("\n[1] 必需文件")
     need = ["src/deepseek_pet.py", "src/motion.py", "src/sfx.py", "src/lines.py",
+            "src/contentpack.py", "src/updater.py",
+            "content/actions.json", "content/manifest.json",
             "assets/pet/manifest.json", "config.json", "启动桌宠.bat", "README.md"]
     for n in need:
         hit = f"{TOP}/{n}" in names
@@ -156,14 +162,33 @@ def verify(zip_path, py):
     print(("  OK   " if good else "  FAIL ")
           + (f"{len(rd)} 字符，无 docs/ 死链" if good else f"残留: {dead[:2]}"))
 
-    print("[2] 素材齐全")
-    with open(os.path.join(ROOT, "assets", "pet", "manifest.json"), encoding="utf-8") as f:
-        frames = [m["name"] for m in json.load(f)]
-    miss_img = [f for f in frames if f"{TOP}/assets/pet/{f}.webp" not in names]
+    print("[2] 内容包与素材")
+    # 以 content/actions.json 为准 —— 运行时读的是它。
+    # assets/pet/manifest.json 只是素材流水线的产物记录，程序不再读。
+    with open(os.path.join(ROOT, "content", "actions.json"), encoding="utf-8") as f:
+        acts = json.load(f)
+    declared = acts.get("assets") or {}
+    miss = []
+    for nm, meta in declared.items():
+        rel = str(meta.get("file") or "").replace("\\", "/")
+        if not any(c in names for c in (f"{TOP}/content/{rel}", f"{TOP}/assets/{rel}")):
+            miss.append(f"{nm}({rel})")
+    ok &= not miss
+    print(("  OK   " if not miss else "  FAIL ")
+          + f"{len(declared)} 张声明素材" + (f" 缺: {miss}" if miss else ""))
+
+    dangling = []
+    for st, smeta in (acts.get("states") or {}).items():
+        for fr in smeta.get("frames") or []:
+            if fr not in declared:
+                dangling.append(f"{st}->{fr}")
+    ok &= not dangling
+    print(("  OK   " if not dangling else "  FAIL ")
+          + f"{len(acts.get('states') or {})} 个状态引用的帧都有定义"
+          + (f" 悬空: {dangling}" if dangling else ""))
+
     n_wav = sum(1 for n in names if n.startswith(f"{TOP}/assets/sfx/") and n.endswith(".wav"))
-    ok &= not miss_img
-    print(("  OK   " if not miss_img else "  FAIL ")
-          + f"{len(frames)} 张贴图" + (f" 缺: {miss_img}" if miss_img else ""))
+    ok &= n_wav > 0
     print(("  OK   " if n_wav else "  FAIL ") + f"{n_wav} 条音效")
 
     print("[3] 启动器纯 ASCII + CRLF")
@@ -200,19 +225,26 @@ def verify(zip_path, py):
             "ex = r'%s'\n"
             "sys.path.insert(0, os.path.join(ex,'src'))\n"
             "os.environ['QT_QPA_PLATFORM']='offscreen'\n"
+            # 自检不能真的联网，也不能读本机已装的远端内容
+            "os.environ['DPET_USER_CONTENT']=os.path.join(tempfile.gettempdir(),'dpet_pkg_nocontent')\n"
             "from PyQt5.QtWidgets import QApplication\n"
             "import deepseek_pet as dp\n"
             "dp.CONFIG_PATH = os.path.join(tempfile.gettempdir(),'dpet_pkg_check.json')\n"
             "app = QApplication([])\n"
-            "pet = dp.PetWindow(dp.load_cfg())\n"
+            "cfg = dp.load_cfg()\n"
+            "cfg['auto_update'] = False\n"
+            "pet = dp.PetWindow(cfg)\n"
             "pet.show()\n"
             "assert len(pet.pix) == 10, sorted(pet.pix)\n"
+            "assert pet.pack.source == 'builtin', pet.pack.source\n"
+            "assert len(pet.STATES) == 8, sorted(pet.STATES)\n"
+            "assert pet.pack.motion_set().unknown == [], pet.pack.motion_set().unknown\n"
             "for st in pet.STATES:\n"
             "    pet._set_state(st, force=True)\n"
             "ready = pet.sfx.wait_ready()\n"
             "assert pet.sfx.ok and ready > 0, 'sfx: ' + pet.sfx.reason\n"
             "pet._tick()\n"
-            "print('OFFSCREEN_OK frames=%%d sfx=%%d win=%%dx%%d' %% (len(pet.pix), ready, pet.win_w, pet.win_h))\n"
+            "print('OFFSCREEN_OK frames=%%d states=%%d sfx=%%d win=%%dx%%d' %% (len(pet.pix), len(pet.STATES), ready, pet.win_w, pet.win_h))\n"
             "import os as _os\n"
             "_os.path.exists(dp.CONFIG_PATH) and _os.remove(dp.CONFIG_PATH)\n"
         ) % ex
@@ -228,6 +260,26 @@ def verify(zip_path, py):
             print("  stderr:", (r.stderr or "")[-600:])
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+    print("[6] 远端清单与包内文件一致")
+    bad, mf = [], {}
+    try:
+        with open(os.path.join(ROOT, "content", "manifest.json"), encoding="utf-8") as f:
+            mf = json.load(f)
+        with zipfile.ZipFile(zip_path) as z:
+            for rel, meta in (mf.get("files") or {}).items():
+                name = f"{TOP}/content/{rel}"
+                if name not in names:
+                    bad.append(f"{rel} 不在包里")
+                    continue
+                if hashlib.sha256(z.read(name)).hexdigest() != meta.get("sha256"):
+                    bad.append(f"{rel} 哈希不符")
+    except Exception as e:                      # noqa: BLE001
+        bad.append(str(e))
+    ok &= not bad
+    print(("  OK   " if not bad else "  FAIL ")
+          + f"清单 r{mf.get('content_version')} 覆盖 {len(mf.get('files') or {})} 个文件"
+          + (f" | {bad[:3]}" if bad else ""))
     return ok
 
 

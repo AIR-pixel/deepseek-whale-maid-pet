@@ -185,7 +185,11 @@ def main():
     if before:
         print(f"[i] 检测到已有 {len(before)} 个同名窗口（你自己的实例），本次只测新起的那个")
 
-    proc = subprocess.Popen([PY, "-c", boot], cwd=ROOT)
+    # 验证的是画面，不该顺带联网，也不该读本机已安装的远端内容
+    env = dict(os.environ)
+    env["DPET_NO_UPDATE"] = "1"
+    env["DPET_USER_CONTENT"] = os.path.join(tempfile.gettempdir(), "dpet_verify_nocontent")
+    proc = subprocess.Popen([PY, "-c", boot], cwd=ROOT, env=env)
     try:
         hwnd = None
         for _ in range(40):
@@ -223,7 +227,9 @@ def main():
                 alive += 1
             print(f"    第1帧 vs 第{i}帧: {d*100:.2f}%")
 
-        out = os.path.join(HERE, f"_live_grab_{height or 'cur'}.png")
+        # 落临时目录，不要落源码目录：这是每次跑都会覆盖的调试图，
+        # 丢在 tools/ 下会让 git status 一直挂一个未跟踪文件。
+        out = os.path.join(tempfile.gettempdir(), f"dpet_live_grab_{height or 'cur'}.png")
         shots[-1].save(out)
         print(f"[i] 末帧已存 {out}")
 

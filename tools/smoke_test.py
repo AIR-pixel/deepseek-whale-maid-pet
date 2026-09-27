@@ -47,12 +47,23 @@ def no_auto_action():
 
 app = QApplication([])
 cfg = dp.load_cfg()
+# 冒烟测试不该真的联网：关掉启动检查（更新链路由 tools/update_test.py 单独覆盖）。
+# 不关的话 PetWindow.__init__ 会起后台线程去访问 GitHub，测试变成看网络脸色。
+cfg["auto_update"] = False
+# 内容包也钉到临时目录，别让本机已安装的远端内容影响断言
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SMOKE_CONTENT = os.path.join(tempfile.gettempdir(), "dpet_smoke_content")
+import shutil  # noqa: E402
+shutil.rmtree(SMOKE_CONTENT, ignore_errors=True)
+os.environ["DPET_USER_CONTENT"] = SMOKE_CONTENT
 pet = dp.PetWindow(cfg)
 pet.show()
 print("[1] 素材加载")
 check(len(pet.pix) == 10, f"载入帧数 = {len(pet.pix)}")
 check(all(not p.isNull() for p in pet.pix.values()), "所有 WebP 有效")
 check(pet.win_w > 100 and pet.win_h > 100, f"窗口尺寸 = {pet.win_w}x{pet.win_h}")
+check(pet.missing_frames == [], f"无缺失帧 = {pet.missing_frames}")
+check(pet.pack.source == "builtin", f"初始内容来源 = {pet.pack.source}")
 
 print("[2] 状态机")
 for st in pet.STATES:
@@ -279,6 +290,63 @@ S.set_enabled(True)
 S.set_volume(0.0)
 check(not S.play("click"), "音量 0 时不出声")
 check(S.set_volume(0.6) == 0.6, "音量可设回 0.6")
+
+print("[16] 内容热加载与惊喜")
+import json as _json  # noqa: E402
+import updater as _up  # noqa: E402
+
+# 铺一份"远端新内容"：一个新动作 stretch，带自己的台词和权重
+os.makedirs(os.path.join(SMOKE_CONTENT, "pet"), exist_ok=True)
+shutil.copyfile(os.path.join(ROOT, "assets", "pet", "happy.webp"),
+                os.path.join(SMOKE_CONTENT, "pet", "stretch.webp"))
+with open(os.path.join(SMOKE_CONTENT, "actions.json"), "w", encoding="utf-8") as f:
+    _json.dump({
+        "schema": 1, "content_version": 2, "announce": "我学会新动作了！",
+        "assets": {"stretch": {"file": "pet/stretch.webp", "visual_scale": 1.0}},
+        "motions": {"stretch": {"cycle": 2.2, "channels": {
+            "dy": [{"k": "sine", "period": 2.2, "amp": 6.0}],
+            "sy": [{"k": "sine", "period": 1.1, "amp": 0.02}]}}},
+        "states": {"stretch": {"frames": ["stretch"], "temp": True,
+                               "dur": [2200, 2800], "cue": "happy",
+                               "lines": ["伸个懒腰。"], "weight": 3}},
+    }, f, ensure_ascii=False)
+
+before = set(pet.STATES)
+res = _up.UpdateResult("updated", 2, message="已更新到 r2", announce="我学会新动作了！")
+pet._on_update_result(res)
+check(pet.pack.source == "builtin+remote", f"热加载后来源 = {pet.pack.source}")
+check(set(pet.STATES) - before == {"stretch"}, f"新增状态 = {sorted(set(pet.STATES) - before)}")
+check("stretch" in pet.shown, "新素材已进入渲染表")
+check(pet._pending_new == ["stretch"], f"待演队列 = {pet._pending_new}")
+check(any(n == "stretch" for n, _ in pet._idle_pool), f"抽签池 = {pet._idle_pool}")
+check(pet._state_lines("stretch") == ["伸个懒腰。"], "新动作台词来自内容包")
+check(pet._state_cue("stretch") == "happy", "新动作音效来自内容包")
+
+pet._set_state("idle", force=True)
+pet._play_surprise()
+check(pet._state == "stretch", f"惊喜已演出，状态 = {pet._state}")
+check(pet.bubble._text == "我学会新动作了！", f"气泡 = {pet.bubble._text!r}")
+check(pet._pending_new == [], "演出后队列清空")
+check(pet.pack.state_meta("stretch").get("announce") or True, "内容包元数据可读")
+
+# 回滚：删掉远端目录再热加载，必须干净地退回内置
+shutil.rmtree(SMOKE_CONTENT, ignore_errors=True)
+check(pet._reload_content(), "热加载回退成功")
+check("stretch" not in pet.STATES, "回滚后新状态消失")
+check(len(pet.STATES) == 8, f"状态数回到 8 = {len(pet.STATES)}")
+check(pet._pending_new == [], "回滚后队列为空")
+
+# 内容包坏掉时必须整体退回内置，而不是半个包跑起来
+os.makedirs(SMOKE_CONTENT, exist_ok=True)
+with open(os.path.join(SMOKE_CONTENT, "actions.json"), "w", encoding="utf-8") as f:
+    _json.dump({"content_version": 3,
+                "states": {"ghost": {"frames": ["not_here"], "temp": True,
+                                     "dur": [1000, 2000]}}}, f)
+pack = dp.contentpack.load()
+check(pack.source == "builtin", f"素材缺失的包应被整个丢弃，实际 {pack.source}")
+check(pack.problems and "not_here" in " ".join(pack.problems),
+      f"给出可读原因 = {pack.problems}")
+shutil.rmtree(SMOKE_CONTENT, ignore_errors=True)
 
 print()
 try:

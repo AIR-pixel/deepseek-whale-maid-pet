@@ -1,0 +1,106 @@
+{
+  "schema": 1,
+  "content_version": 1,
+  "generator": "builtin",
+  "assets": {
+    "idle_open":     {"file": "pet/idle_open.webp",     "visual_scale": 1.0},
+    "idle_blink":    {"file": "pet/idle_blink.webp",    "visual_scale": 1.0},
+    "work_keypress": {"file": "pet/work_keypress.webp", "visual_scale": 1.0},
+    "work_desk":     {"file": "pet/work_desk.webp",     "visual_scale": 0.9},
+    "eat":           {"file": "pet/eat.webp",           "visual_scale": 1.0},
+    "doze":          {"file": "pet/doze.webp",          "visual_scale": 1.0},
+    "sleep":         {"file": "pet/sleep.webp",         "visual_scale": 0.95},
+    "whale":         {"file": "pet/whale.webp",         "visual_scale": 0.78},
+    "blindfold":     {"file": "pet/blindfold.webp",     "visual_scale": 1.0},
+    "happy":         {"file": "pet/happy.webp",         "visual_scale": 1.0}
+  },
+  "motions": {
+    "idle_open": {
+      "cycle": 3.6,
+      "channels": {
+        "dy": [{"k": "sine", "period": 3.6, "amp": 4.8}],
+        "sy": [{"k": "sine", "period": 3.6, "amp": 0.009}]
+      }
+    },
+    "idle_blink": {"inherit": "idle_open"},
+    "work_keypress": {
+      "cycle": 0.92,
+      "defs": {
+        "tap": {"k": "pulse_sum", "items": [[0.17, 0.36], [0.23, 0.28]], "max": 1.0, "amp": -2.6}
+      },
+      "channels": {
+        "dx": [{"k": "sine", "period": 3.0, "amp": 1.2}],
+        "dy": [{"$def": "tap"}],
+        "rot": [{"k": "ref", "ch": "dx", "amp": 0.16}]
+      }
+    },
+    "work_desk": {"inherit": "work_keypress"},
+    "eat": {
+      "cycle": 1.05,
+      "channels": {
+        "dy": [{"k": "sine", "period": 1.05, "amp": 3.4, "save": "chew", "save_scale": 1.0}],
+        "sx": [{"k": "ref", "sig": "chew", "amp": 0.003}],
+        "sy": [{"k": "ref", "sig": "chew", "amp": -0.003}],
+        "rot": [{"k": "sine", "period": 2.1, "amp": 0.8}]
+      }
+    },
+    "doze": {
+      "cycle": 3.4,
+      "channels": {
+        "dy": [{"k": "sink", "period": 3.4, "amp": 11.0, "hold": 0.78, "save": "sink"}],
+        "sy": [{"k": "ref", "sig": "sink", "amp": -0.005}],
+        "rot": [{"k": "ref", "sig": "sink", "amp": 0.16}]
+      }
+    },
+    "sleep": {
+      "cycle": 4.6,
+      "channels": {
+        "dy": [{"k": "sine", "period": 4.6, "amp": 2.0}],
+        "sx": [{"k": "sine", "period": 4.6, "amp": 0.006}],
+        "sy": [{"k": "sine", "period": 4.6, "amp": 0.013}]
+      }
+    },
+    "whale": {
+      "cycle": 5.4,
+      "channels": {
+        "dx": [{"k": "sine", "period": 5.4, "amp": 9.0}],
+        "dy": [{"k": "sine", "period": 3.1, "amp": 4.2}],
+        "rot": [{"k": "sine", "period": 5.4, "amp": 2.4}]
+      }
+    },
+    "blindfold": {
+      "cycle": 0.5,
+      "defs": {
+        "jitter": {"k": "freq", "omega": 37.0, "amp": 1.9}
+      },
+      "channels": {
+        "dx": [{"$def": "jitter"}, {"k": "freq", "omega": 23.0, "amp": 0.9}],
+        "dy": [{"k": "freq", "omega": 31.0, "amp": 0.8}],
+        "rot": [{"k": "ref", "ch": "dx", "amp": 0.32}]
+      }
+    },
+    "happy": {
+      "cycle": 0.95,
+      "defs": {
+        "hop": {"k": "hop", "period": 0.95, "amp": 16.0, "crouch": 0.10, "air": 0.80,
+                "crouch_amp": 2.8, "crouch_sx": 0.07, "crouch_sy": 0.08,
+                "land_sx": 0.06, "land_sy": 0.07}
+      },
+      "channels": {
+        "dy": [{"$def": "hop"}],
+        "sx": [{"$def": "hop"}],
+        "sy": [{"$def": "hop"}]
+      }
+    }
+  },
+  "states": {
+    "idle":      {"frames": ["idle_open"], "temp": false, "dur": null},
+    "work":      {"frames": ["work_keypress", "work_desk"], "temp": false, "dur": null, "weight": 1},
+    "eat":       {"frames": ["eat"], "temp": true, "dur": [2600, 3200]},
+    "happy":     {"frames": ["happy"], "temp": true, "dur": [2200, 2800], "weight": 1},
+    "blindfold": {"frames": ["blindfold"], "temp": true, "dur": [1800, 2400]},
+    "whale":     {"frames": ["whale"], "temp": true, "dur": [3200, 4200], "weight": 1},
+    "doze":      {"frames": ["doze"], "temp": false, "dur": null},
+    "sleep":     {"frames": ["sleep"], "temp": false, "dur": null}
+  }
+}

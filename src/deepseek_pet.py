@@ -21,9 +21,11 @@ from PyQt5.QtWidgets import (QAction, QActionGroup, QApplication, QMenu,
                              QSystemTrayIcon, QWidget)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import contentpack  # noqa: E402
 import lines  # noqa: E402
 import motion  # noqa: E402
 import sfx  # noqa: E402
+import updater  # noqa: E402
 
 
 def pin_qt_plugins():
@@ -72,10 +74,16 @@ DEFAULT_CFG = {
     "mute_speech": False,
     "sfx": True,                # 交互音效总开关
     "sfx_volume": 0.6,          # 0.0 ~ 1.0
+    "auto_update": True,        # 启动时接收远端新内容（首次启动会问一次）
 }
+
+# 首次运行时问一次"要不要接收新内容"。没问过 = 用户还没表态，
+# 此时即使 auto_update 默认开着也先不下 —— 联网的事必须用户点头。
+CONSENT_KEY = "update_consent"
 
 # 进入某状态时播什么音。只列"由用户动作或自发小动作触发"的状态——
 # idle 是回退（响就吵）、doze/sleep 是人不在时才会进（响了没人听），都不给音。
+# 远端新动作可以在自己的状态定义里带 cue 覆盖这张表。
 STATE_CUE = {
     "happy":     "happy",
     "blindfold": "shy",
@@ -83,6 +91,16 @@ STATE_CUE = {
     "eat":       "eat",
     "work":      "work",
 }
+
+# 收到新内容后，等角色下次空闲时自己演一个出来，配这句台词。
+DEFAULT_SURPRISE_LINE = "我学会新动作了！"
+
+# 每次 tick（40ms）有多大概率把待播的新动作演出来 —— 平均两秒左右，
+# 刻意不用"立刻演"：用户可能正在拖它或者看视频，突然跳一下很突兀。
+SURPRISE_CHANCE = 0.02
+
+# 开机检查更新前先等一会儿，别跟首帧、问候音抢启动那一下
+UPDATE_DELAY_S = 5.0
 
 # 自发小动作（用户没碰它，它自己换状态）要不要出声。
 # 关掉是刻意的选择：需求是"交互反馈音"，每隔几十秒自己响一声会变成噪音。
@@ -273,17 +291,12 @@ class Bubble(QWidget):
 
 
 class PetWindow(QWidget):
-    # 状态 -> (素材名列表, 是否为临时状态, 持续毫秒范围)
-    STATES = {
-        "idle":      (["idle_open"], False, None),
-        "work":      (["work_keypress", "work_desk"], False, None),
-        "eat":       (["eat"], True, (2600, 3200)),
-        "happy":     (["happy"], True, (2200, 2800)),
-        "blindfold": (["blindfold"], True, (1800, 2400)),
-        "whale":     (["whale"], True, (3200, 4200)),
-        "doze":      (["doze"], False, None),
-        "sleep":     (["sleep"], False, None),
-    }
+    """桌宠窗口。
+
+    ``STATES``、``pix``、``motion`` 这三样都来自内容包（``self.pack``），
+    不再是类里的常量 —— 这是"能从远端收到新动作"的前提。
+    远端内容一落盘，调 ``_reload_content()`` 就地换掉它们，不用重启。
+    """
 
     def __init__(self, cfg):
         super().__init__()
@@ -296,7 +309,12 @@ class PetWindow(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setWindowTitle("DeepSeek 鲸鱼娘")
 
+        # 内容包必须在任何素材/状态相关的东西之前就位
+        self.pack = contentpack.load()
+        self.motion = self.pack.motion_set()
+        self.STATES = self.pack.states_for_pet()
         self._load_assets()
+        self._refresh_pools()
 
         # 动画 / 状态
         self._t = 0.0
@@ -316,6 +334,13 @@ class PetWindow(QWidget):
         self._sit_due = 50 * 60
         self._speak_on_next_idle = False
 
+        # 更新相关：pending 是"已下载但还没演给用户看"的新动作
+        self._pending_new = []
+        self._surprise_line = None
+        self._last_update = None
+        self._tick_n = 0
+        self.updater = None
+
         # 音效：必须在 _build_menu() 之前建好（菜单要读它的状态），
         # 也必须早于 _greet()（问候音要能立刻响）
         self.sfx = sfx.Sfx(enabled=cfg.get("sfx", True),
@@ -325,7 +350,7 @@ class PetWindow(QWidget):
         self._build_menu()
 
         self._apply_geometry(initial=True)
-        self._render_frame("idle_open")
+        self._render_frame(self._first_frame())
         self.sfx.wait_ready()             # 等异步加载，否则第一次点击会没声音
         self._greet()
 
@@ -333,19 +358,35 @@ class PetWindow(QWidget):
         self._timer.timeout.connect(self._tick)
         self._timer.start(TICK_MS)
 
+        self._start_update_check()
+
     # ------------------------------------------------ 素材
     def _load_assets(self):
-        with open(os.path.join(ASSET_DIR, "manifest.json"), encoding="utf-8") as f:
-            manifest = json.load(f)
+        """按内容包里的清单加载素材。
+
+        个别帧读不出来不让程序起不来 —— 缺的那帧直接不进 pix，
+        渲染时由 ``_render_frame`` 兜到别的帧去。全部读不出来才认输。
+        """
         self.dpr = self.devicePixelRatioF() if hasattr(self, "devicePixelRatioF") else 1.0
-        src = {m["name"]: m for m in manifest}
-        self.pix = {}
-        for name in src:
-            pm = QPixmap(os.path.join(ASSET_DIR, name + ".webp"))
+        pix, missing = {}, []
+        for name in self.pack.frame_names():
+            path = self.pack.asset_path(name)
+            pm = QPixmap(path) if path else QPixmap()
             if pm.isNull():
-                raise RuntimeError("素材缺失: " + name)
-            self.pix[name] = pm
+                missing.append(name)
+            else:
+                pix[name] = pm
+        if not pix:
+            raise RuntimeError("内容包里一张立绘都读不出来")
+        self.pix = pix
+        self.missing_frames = missing
         self._rescale()
+
+    def _first_frame(self):
+        """开屏用哪一帧：优先 idle_open，否则随便挑一张能用的"""
+        if "idle_open" in self.shown:
+            return "idle_open"
+        return sorted(self.shown)[0]
 
     def _rescale(self):
         """按配置高度重算所有帧的显示尺寸（逻辑尺寸与物理像素分开记录）"""
@@ -354,7 +395,7 @@ class PetWindow(QWidget):
         dpr = self.dpr
         shown, lsize = {}, {}
         for name, pm in self.pix.items():
-            fh = max(1, round(h * motion.VISUAL_SCALE.get(name, 1.0)))
+            fh = max(1, round(h * self.pack.visual_scale(name)))
             nw = max(1, round(pm.width() * fh / pm.height()))
             scaled = pm.scaled(int(nw * dpr), int(fh * dpr), Qt.KeepAspectRatio,
                                Qt.SmoothTransformation)
@@ -368,6 +409,25 @@ class PetWindow(QWidget):
         # 窗口尺寸 = 最大帧 + 动效余量（全部按逻辑像素）
         self.win_w = max(w for w, _ in lsize.values()) + self.motion_pad * 2
         self.win_h = max(hh for _, hh in lsize.values()) + self.motion_pad * 2
+
+    def _refresh_pools(self):
+        """整理两个池子。内容热加载后必须重算，否则新动作抽不到、眨眼会指向旧帧。"""
+        # 待机自发小动作的候选：状态定义里 weight > 0 的才参与抽签。
+        # 用权重而不是"临时状态全都算"，是因为 doze / sleep / eat 这些
+        # 不该在用户眼前无缘无故自己演。
+        pool = []
+        for name in self.STATES:
+            meta = self.pack.state_meta(name)
+            try:
+                w = int(meta.get("weight", 0) or 0)
+            except (TypeError, ValueError):
+                w = 0
+            if w > 0:
+                pool.append((name, w))
+        self._idle_pool = pool
+        self.blink_frames = (("idle_open", "idle_blink")
+                             if "idle_open" in self.shown and "idle_blink" in self.shown
+                             else None)
 
     # ------------------------------------------------ 几何
     def _apply_geometry(self, initial=False):
@@ -388,6 +448,8 @@ class PetWindow(QWidget):
         return x, y
 
     def _render_frame(self, name):
+        if name not in self.shown:      # 素材缺失时兜到别的帧，别让一帧把程序打崩
+            name = self._first_frame()
         self._cur = name
         pm = self.shown[name]
         x, y = self._frame_pos(name)
@@ -429,9 +491,25 @@ class PetWindow(QWidget):
         self._render_frame(random.choice(frames))
         self._state_deadline = (self._t * 1000 + random.uniform(*dur)) if temp else 0
         if cue:
-            name = STATE_CUE.get(state)
+            name = self._state_cue(state)
             if name:
                 self.sfx.play(name)
+
+    def _state_cue(self, state):
+        """进入该状态播什么音。内容包可以自带 cue 覆盖内置表（远端新动作要用）。
+
+        只认已经存在的音效文件；远端写了个不存在的名字就静默，
+        让 sfx 层去处理"文件不存在"这件事，别在这里抛。
+        """
+        custom = self.pack.state_meta(state).get("cue")
+        return custom or STATE_CUE.get(state)
+
+    def _state_lines(self, state):
+        """该状态可以说什么。内容包自带台词就用自带的。"""
+        custom = self.pack.state_meta(state).get("lines")
+        if custom:
+            return list(custom)
+        return lines.BY_STATE.get(state) or lines.POKE
 
     def _say(self, text, dur=3600, cue="pop"):
         """弹气泡。cue=None 表示这次不出声（调用方已经播过更贴切的音）。"""
@@ -443,8 +521,7 @@ class PetWindow(QWidget):
         self.bubble.show_text(text, dur)
 
     def _speak_state(self, cue="pop"):
-        pool = lines.BY_STATE.get(self._state) or lines.POKE
-        self._say(random.choice(pool), cue=cue)
+        self._say(random.choice(self._state_lines(self._state)), cue=cue)
 
     def _greet(self):
         self._say(random.choice(lines.greet_by_hour(datetime.now().hour)), 4200,
@@ -470,9 +547,14 @@ class PetWindow(QWidget):
             self._set_state("idle", force=True)
             self._say(random.choice(lines.WAKE), cue="wake")
 
+        # 新内容优先：下载完的东西先存着，等角色空下来再演 —— 不抢。
+        # 用户可能正拖着它或看视频，突然跳一下很突兀。
+        if (self._pending_new and self._state == "idle"
+                and random.random() < SURPRISE_CHANCE):
+            self._play_surprise()
         # 待机时自发小动作（用户没碰它 —— 默认不出声，见 AUTO_CUE 注释）
-        if self._state == "idle" and random.random() < 0.0016:
-            self._set_state(random.choice(["whale", "happy", "work"]), cue=AUTO_CUE)
+        elif self._state == "idle" and random.random() < 0.0016:
+            self._set_state(self._pick_idle_action(), cue=AUTO_CUE)
         elif self._state == "work" and random.random() < 0.0012:
             self._set_state("idle", force=True, cue=False)
 
@@ -489,17 +571,26 @@ class PetWindow(QWidget):
         self.update()
 
         # 眨眼
-        if self._state == "idle":
+        if self._state == "idle" and self.blink_frames:
+            open_f, blink_f = self.blink_frames
             if ms < self._blink_until:
-                if self._cur != "idle_blink":
-                    self._render_frame("idle_blink")
+                if self._cur != blink_f:
+                    self._render_frame(blink_f)
             else:
-                if self._cur == "idle_blink":
-                    self._render_frame("idle_open")
+                if self._cur == blink_f:
+                    self._render_frame(open_f)
                 if self._t >= self._next_blink:
                     self._next_blink = self._t + random.uniform(2.4, 7.0)
                     self._blink_until = ms + 120
-                    self._render_frame("idle_blink")
+                    self._render_frame(blink_f)
+
+        # 更新结果：一秒看一次队列就够（下载全在后台线程，这里只是取结果）
+        self._tick_n += 1
+        if self._tick_n >= 25 and self.updater is not None:
+            self._tick_n = 0
+            res = self.updater.poll()
+            if res is not None:
+                self._on_update_result(res)
 
     # ------------------------------------------------ 绘制
     def paintEvent(self, _):
@@ -507,8 +598,8 @@ class PetWindow(QWidget):
         pm = self.shown[name]
         x, y = self._frame_pos(name)
         lw, lh = self.lsize[name]
-        dx, dy, sx, sy, rot = motion.params(name, self._t - self._state_t0,
-                                            motion.scale_for(lh))
+        dx, dy, sx, sy, rot = self.motion.params(name, self._t - self._state_t0,
+                                                 motion.scale_for(lh))
 
         p = QPainter(self)
         p.setRenderHint(QPainter.SmoothPixmapTransform)
@@ -710,6 +801,25 @@ class PetWindow(QWidget):
         m.addAction(self._autostart_action)
 
         m.addSeparator()
+        cont = m.addMenu("内容更新")
+        upd = QAction("接收新内容", cont)
+        upd.setCheckable(True)
+        upd.setChecked(bool(self.cfg.get("auto_update", True)))
+        upd.triggered.connect(self._toggle_autoupdate)
+        cont.addAction(upd)
+        a = QAction("立即检查", cont)
+        a.triggered.connect(self._manual_check)
+        cont.addAction(a)
+        cont.addSeparator()
+        info = QAction(self._content_status(), cont)
+        info.setEnabled(False)                  # 纯展示，不可点
+        cont.addAction(info)
+        rb = QAction("回滚到自带内容", cont)
+        rb.setEnabled(self.pack.source == "builtin+remote")
+        rb.triggered.connect(self._rollback_content)
+        cont.addAction(rb)
+
+        m.addSeparator()
         a = QAction("资源占用", m)
         a.triggered.connect(self._report_usage)
         m.addAction(a)
@@ -809,6 +919,151 @@ class PetWindow(QWidget):
 
     def _about(self):
         self._say("我是 DeepSeek 的鲸鱼娘。给饭就干活。", 5000)
+
+    # ------------------------------------------------ 内容更新
+    def _pick_idle_action(self):
+        """待机时随机抽一个自发小动作。按权重抽，新动作可以给自己调高权重。"""
+        if not self._idle_pool:
+            return "idle"
+        return random.choices([n for n, _ in self._idle_pool],
+                              weights=[w for _, w in self._idle_pool], k=1)[0]
+
+    def _play_surprise(self):
+        """把刚收到的新动作演给用户看 —— 这就是"小惊喜"的落点。
+
+        更新本身是静默的（不弹窗、不打断），但生效那一刻要有动静：
+        演一个新动作 + 配它自己的台词 + 一个音效。
+        """
+        name = self._pending_new.pop(0)
+        if name not in self.STATES:
+            return
+        meta = self.pack.state_meta(name)
+        cue = meta.get("cue") or STATE_CUE.get(name) or "happy"
+        self._set_state(name, force=True, cue=False)
+        self.sfx.play(cue)
+        self._say(meta.get("announce") or self._surprise_line
+                  or DEFAULT_SURPRISE_LINE, 4600, cue=None)
+
+    def _reload_content(self):
+        """热加载：重读内容包，就地换掉状态表 / 动效 / 立绘。不重启。
+
+        全程用**局部变量**攒出新的三件套，确认都可用之后才整体替换 ——
+        中途失败就地返回 False，角色保持原样继续跑。
+        """
+        try:
+            pack = contentpack.load()
+            mset = pack.motion_set()
+            states = pack.states_for_pet()
+            pix = {}
+            for fname in pack.frame_names():
+                path = pack.asset_path(fname)
+                pm = QPixmap(path) if path else QPixmap()
+                if not pm.isNull():
+                    pix[fname] = pm
+            if not pix or not states or "idle" not in states:
+                return False
+        except Exception:                     # noqa: BLE001 — 热加载失败不能让角色消失
+            return False
+
+        self.pack = pack
+        self.motion = mset
+        self.STATES = states
+        self.pix = pix
+        self.missing_frames = []
+        self._rescale()
+        self.resize(self.win_w, self.win_h)
+        self._refresh_pools()
+        if self._cur not in self.shown:
+            self._set_state("idle", force=True, cue=False)
+        else:
+            self._render_frame(self._cur)
+        self._build_menu()
+        return True
+
+    def _on_update_result(self, res):
+        self._last_update = res
+        self._build_menu()
+        if res.status != "updated":
+            return
+
+        before = set(self.STATES)
+        if not self._reload_content():
+            self._say("新内容没装上，我还是原来的我。", 4200, cue="pop")
+            return
+
+        fresh = [s for s in self.STATES if s not in before]
+        self._surprise_line = res.announce
+        self._pending_new = [
+            s for s in fresh
+            if int(self.pack.state_meta(s).get("weight", 0) or 0) > 0
+        ]
+        if not self._pending_new:
+            # 装上了但没带回能自发演的动作（比如只改了台词），轻轻说一声就完了
+            self._say(res.announce or "我更新了一下。", 3800, cue="pop")
+
+    def _announce_consent(self):
+        self._say("以后我会自己学点新动作。不想的话，右键菜单里能关。", 5600, cue="pop")
+
+    def _start_update_check(self, force=False):
+        """起一次后台检查。force=True 是用户手动点的，无视开关与冷却。"""
+        # 排错/自动化测试用：DPET_NO_UPDATE=1 时完全不联网。
+        # 和 DPET_NO_PROXY 是一类东西 —— 出问题时得能一刀断开而不是去改代码。
+        if os.environ.get("DPET_NO_UPDATE"):
+            return
+        if not force:
+            if not self.cfg.get("auto_update", True):
+                return
+            if not self.cfg.get(CONSENT_KEY, False):
+                # 还没跟用户打过招呼。先说明再联网，别偷偷来。
+                self.cfg[CONSENT_KEY] = True
+                self._save()
+                QTimer.singleShot(6000, self._announce_consent)
+        if self.updater is not None and self.updater.running:
+            return
+        if force:
+            # 手动检查：内容包被整包丢弃时（远端内容坏了）版本按 0 算，
+            # 这一下会把远端内容重新完整拉一遍 —— 这就是坏内容的救援手段。
+            ver = self.pack.version if self.pack.source == "builtin+remote" else 0
+        else:
+            # 开机检查：以内置版本号起步。远端与内置同版本就不下载 ——
+            # 新装的用户没必要把自带的内容再从网上下一遍。
+            ver = self.pack.version
+        self.updater = updater.Updater(current_version=ver, enabled=True,
+                                       delay=0.0 if force else UPDATE_DELAY_S)
+        self.updater.start()
+
+    def _toggle_autoupdate(self, v):
+        self.cfg["auto_update"] = bool(v)
+        if v:
+            self.cfg[CONSENT_KEY] = True
+        self._save()
+        if v:
+            self._start_update_check(force=True)
+        else:
+            self._say("好，我不联网了。", 3200, cue="click")
+
+    def _manual_check(self):
+        if self.updater is not None and self.updater.running:
+            self._say("正在看了，稍等。", 3200, cue="click")
+            return
+        self._say("我去看看有没有新东西……", 3200, cue="click")
+        self._start_update_check(force=True)
+
+    def _rollback_content(self):
+        if self.pack.source != "builtin+remote":
+            return
+        if updater.rollback() and self._reload_content():
+            self._pending_new = []
+            self._say("退回到自带的内容了。", 3800, cue="click")
+
+    def _content_status(self):
+        if self.pack.source == "builtin+remote":
+            text = f"当前内容 r{self.pack.version}"
+        else:
+            text = "当前内容：自带"
+        if self._last_update is not None:
+            text += f"（{self._last_update.message}）"
+        return text
 
     # ------------------------------------------------ 持久化
     def _save(self):
