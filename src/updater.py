@@ -38,7 +38,7 @@ import urllib.request
 
 import contentpack
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 REPO = "AIR-pixel/deepseek-whale-maid-pet"
 BRANCH = "main"
 

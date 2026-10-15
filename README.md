@@ -6,12 +6,13 @@
 
 **一只住在桌面右下角的女仆鲸鱼娘。** 轻量 · 纯本地 · 无联网 · 无后台服务。
 
-10 套独立动效 · 15 条程序合成音效 · 59 条台词 · 22 MB 免安装 · **启动时自动接收新动作**。
+10 套独立动效 · 15 条程序合成音效 · 59 条台词 · 22 MB 免安装 · **启动时自动接收新动作** · 也有 Android 手机版。
 
 | 想怎么用 | 下载哪个 |
 |---|---|
-| **马上用，什么都不装** | [`DeepSeek-WhaleMaidPet_1.1.0_selfcontained.zip`](https://github.com/AIR-pixel/deepseek-whale-maid-pet/releases/latest/download/DeepSeek-WhaleMaidPet_1.1.0_selfcontained.zip) · 21.8 MB |
-| 机器上已有 Python 3.9+ | [`DeepSeek-WhaleMaidPet_1.1.0_source.zip`](https://github.com/AIR-pixel/deepseek-whale-maid-pet/releases/latest/download/DeepSeek-WhaleMaidPet_1.1.0_source.zip) · 750 KB |
+| **Windows · 马上用，什么都不装** | [`DeepSeek-WhaleMaidPet_1.2.0_selfcontained.zip`](https://github.com/AIR-pixel/deepseek-whale-maid-pet/releases/latest/download/DeepSeek-WhaleMaidPet_1.2.0_selfcontained.zip) · 21.8 MB |
+| Windows · 机器上已有 Python 3.9+ | [`DeepSeek-WhaleMaidPet_1.2.0_source.zip`](https://github.com/AIR-pixel/deepseek-whale-maid-pet/releases/latest/download/DeepSeek-WhaleMaidPet_1.2.0_source.zip) · 752 KB |
+| **Android 手机版** | [`DeepSeek-WhaleMaidPet_Android_2.0.0.apk`](https://github.com/AIR-pixel/deepseek-whale-maid-pet/releases/latest/download/DeepSeek-WhaleMaidPet_Android_2.0.0.apk) · 1.5 MB |
 | 读代码 / 自己改 | `git clone` 本仓库，见下面「[运行](#运行)」 |
 
 > 附件名是 ASCII 的：GitHub 会把 Release 附件的 name 里**非 ASCII 字符替换成 `.`**
