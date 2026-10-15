@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dpet.poc">
+
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="37" />
+
+    <!-- 悬浮窗：受控权限，需要 appops set 或用户在设置里授权 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 前台服务宿主：常驻宠物必须挂在 FGS 上，否则随时被回收 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:label="PetPerf"
+        android:debuggable="true"
+        android:allowBackup="false"
+        android:hardwareAccelerated="true">
+
+        <!-- 全屏基准（帧驱动对照用） -->
+        <activity
+            android:name="dpet.poc.PetPerfActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|density|uiMode"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 悬浮窗启动器：起完服务即退 -->
+        <activity
+            android:name="dpet.poc.OverlayLauncherActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <service
+            android:name="dpet.poc.PetOverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="desktop pet overlay rendering" />
+        </service>
+
+    </application>
+
+</manifest>
