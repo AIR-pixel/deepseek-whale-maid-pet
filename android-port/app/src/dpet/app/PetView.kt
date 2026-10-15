@@ -74,6 +74,14 @@ class PetView(ctx: Context, private val pack: Pack) : View(ctx) {
     var onLongPress: (() -> Unit)? = null
     var onDragStart: (() -> Unit)? = null
 
+    /**
+     * 手指落在宠物上 / 离开（含被系统 CANCEL）。
+     *
+     * 宿主（[OverlayService]）用它把"换帧 = 换窗口尺寸"这件事推迟到抬手之后 ——
+     * 手势中途改窗口几何，有的 ROM 会把手势直接判成 CANCEL，表现就是点不灵、拖一半断掉。
+     */
+    var onPressChanged: ((Boolean) -> Unit)? = null
+
     /** 相对上一次的位移（屏幕像素），Service 拿去移动窗口 */
     var onDrag: ((Float, Float) -> Unit)? = null
     var onDragEnd: (() -> Unit)? = null
@@ -87,6 +95,9 @@ class PetView(ctx: Context, private val pack: Pack) : View(ctx) {
     private var dragging = false
     private var longFired = false
     private var lastTapNs = 0L
+
+    /** 已经通知过宿主"按下"了，避免 UP/CANCEL 重复回调 */
+    private var pressedFlag = false
 
     private val slop: Int by lazy { ViewConfiguration.get(context).scaledTouchSlop }
     private val longPressMs: Long by lazy {
@@ -120,6 +131,8 @@ class PetView(ctx: Context, private val pack: Pack) : View(ctx) {
                 lastRawY = downRawY
                 dragging = false
                 longFired = false
+                pressedFlag = true
+                onPressChanged?.invoke(true)
                 handler.postDelayed(longPressRunnable, longPressMs)
                 return true
             }
@@ -146,6 +159,7 @@ class PetView(ctx: Context, private val pack: Pack) : View(ctx) {
 
             MotionEvent.ACTION_UP -> {
                 handler.removeCallbacks(longPressRunnable)
+                finishPress()
                 if (longFired) {
                     handler.removeCallbacks(pendingTapRunnable)
                     return true
@@ -169,12 +183,20 @@ class PetView(ctx: Context, private val pack: Pack) : View(ctx) {
 
             MotionEvent.ACTION_CANCEL -> {
                 handler.removeCallbacks(longPressRunnable)
+                finishPress()
                 if (dragging) onDragEnd?.invoke()
                 dragging = false
                 return true
             }
         }
         return super.onTouchEvent(e)
+    }
+
+    /** 通知宿主"手指走了"，并且只通知一次。 */
+    private fun finishPress() {
+        if (!pressedFlag) return
+        pressedFlag = false
+        onPressChanged?.invoke(false)
     }
 
     override fun onDetachedFromWindow() {

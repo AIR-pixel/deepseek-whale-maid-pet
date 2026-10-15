@@ -22,7 +22,7 @@ aapt2 link  →  kotlinc  →  d8  →  zipalign  →  apksigner
 | `app/` | **正式版**。包名 `dpet.app`，产物 `app/build/pet.apk` |
 | `bench/` | 基准测试版。包名 `dpet.benchui`，产物 `bench/build/petbench.apk` |
 | `core/` | 跨端共享的纯逻辑：`Motion.kt`（动效解释器）、`MiniJson.kt` |
-| `verify/` | 跨端动效一致性校验（Python 参考实现 ↔ Kotlin） |
+| `verify/` | 跨端动效一致性校验（Python 参考实现 ↔ Kotlin）+ 真机交互回归脚本 |
 | `tools/` | 自带的 kotlinc（已 gitignore，需要时从 zip 解压） |
 
 `app/src/dpet/app/` 是正式版的全部代码：
@@ -54,6 +54,10 @@ python build_app.py --assets-only# 只拼 assets（排查内容包问题时用�
 
 python build_poc.py --no-install # 构建基准测试版（bench/）
 python build_bench.py            # app_process + dex jar 那条独立路径
+
+python verify/run_verify.py      # 跨端动效一致性（逐位比对）
+python verify/device_check.py    # 真机交互回归：面板改位置 + 触摸链路（要接手机）
+python verify/device_check.py --log   # 只看服务落盘日志的尾部
 ```
 
 `dpetbuild.py` 是公共链：`preflight / link_resources / compile_kotlin / dex /
@@ -88,7 +92,7 @@ pack / ensure_keystore / sign_and_align / build / install_with_ui_fallback`。
 钳制结果反推回写 `anchorX/anchorY`** —— 否则把宠物拖到屏幕边缘再换帧，它会跳
 出去。
 
-### 面板穿透
+### 面板穿透，以及"面板里为什么点不动它"
 
 控制面板一开，宠物窗必须临时变成 `FLAG_NOT_TOUCHABLE`，否则面板上落在宠物
 覆盖区域的那一块控件收不到触摸。实测第一版用广播通知服务切换，**失效**：
@@ -96,8 +100,37 @@ pack / ensure_keystore / sign_and_align / build / install_with_ui_fallback`。
 `PanelState.observe()`，注册时立刻回调当前值：
 
 ```kotlin
-if (cfg.locked || panelOpen) addFlags(FLAG_NOT_TOUCHABLE) else clearFlags(FLAG_NOT_TOUCHABLE)
+if (cfg.passthrough || panelOpen) addFlags(FLAG_NOT_TOUCHABLE) else clearFlags(FLAG_NOT_TOUCHABLE)
 ```
+
+**这条有个必须向用户交代清楚的副作用：面板开着的时候，宠物是点不动的。**
+overlay 永远画在 Activity 之上，所以它会浮在设置页上面，看起来能点，实际毫无反应。
+这是 Android 悬浮窗的硬边界，没有绕法。第一版没有意识到这一点，后果是用户对着一个
+又点不动、面板里又没处调的宠物，只能得出"这软件坏了"的结论。
+
+所以现在有两条兜底：
+
+- **面板里必须有位置调节**（见 `MainActivity` 的"位置"卡片：五个预设 + 两根滑块）。
+  这是"在软件内部把位置设好"的正解 —— 面板开着时宠物不接收触摸，位置就只能在面板里改。
+- **通知栏文案跟着状态走**（`buildNotification()`）：宠物一旦不吃触摸，标题和正文
+  直接写"为什么没反应 + 去哪儿改"。屏幕上唯一常驻的入口，比在哪都写说明管用。
+
+### 两个开关别混为一谈
+
+早先只有一个「锁定位置（触摸穿透）」，把两件事绑在了一起，用户打开它之后连点都点不动，
+面板里又没有改位置的地方 —— 宠物直接变成纯贴图。现在拆成两个：
+
+| 开关 | 效果 | 实现 |
+|---|---|---|
+| 锁定位置 | 拖不动，但单击/双击/长按照常 | `onPetDrag` 直接返回，窗口照收触摸 |
+| 触摸穿透 | 完全不接收触摸（纯观赏） | 整窗 `FLAG_NOT_TOUCHABLE` |
+
+### 手指按着的时候不改窗口尺寸
+
+换帧就要换窗口尺寸（idle 347px 宽、whale 516px 宽）。手势进行到一半去改窗口几何，
+有的 ROM 会把这一串事件直接判成 CANCEL —— 表现就是"点一下没反应、拖到一半断掉"。
+所以 `pushFrame()` 在 `pressed` 时先冻结画面（`resizePending`），抬手后由
+`flushResize()` 补做。尺寸没变（比如只是眨眼那两帧）就不冻，动画照跑。
 
 ## 移植纪律（改 `core/` 前必读）
 
@@ -138,10 +171,23 @@ python verify/run_verify.py
 - **`input tap` 偶发不生效**（连点两次更可靠）；`input tap` 与
   `input touchscreen tap` 语义不同；双击用
   `input "touchscreen tap X Y; touchscreen tap X Y"` 在单次 shell 里串联。
+  **但开关只能点一次** —— 点两次等于开完又关，日志里能看到中间那次 true，
+  实际停在 false（`device_check.py` 的 `toggle_until()` 就是为这个写的）。
+- **`uiautomator dump` 只给可见节点**，屏幕外的控件压根不在树里；面板是 ScrollView，
+  要先把目标滚进视口。滚动起手点必须避开 SeekBar —— 一旦落在滑块上，那一下就把
+  值改了（ScrollView 只在 DOWN 之后才拦截 MOVE，起点在滑块上就拦不住）。
+- **`adb shell sh -c "rm -f ..."` 会被 adb 拆成 `sh -c rm`**，只有 `rm` 被当成命令，
+  删不掉任何东西。要直接 `adb shell rm -f <path>`。
+- **`dumpsys window windows` 在这台机器上列不出我们的 overlay 窗**，读不到窗口
+  flags。所以"它到底收不收触摸"由应用自己记（`DLog` 的 `窗口 flags=0x…`）。
 - **测试解锁链路用 `adb shell wm dismiss-keyguard`。** 滑动解锁（`input swipe`）
   对密码锁屏无效；`am broadcast -a USER_PRESENT` 会被拒（protected broadcast）；
   `settings put secure lockscreen.disabled 1` 在 HyperOS 上**不生效**
   （keyguard 照样 `isKeyguardShowing=true`）。
+- **宠物别贴着屏幕左右边缘。** 左右各约 20dp（1080 宽的机器上约 44px）是系统
+  "返回手势"的起手区，手指从那里起划会被系统抢走 —— 表现出来和"拖不动"一模一样。
+  默认落点 `PetConfig.DEFAULT_X_FRAC = 0.76` 就是按这个算的（idle 帧宽 347px 时
+  宠物右缘距屏幕边缘约 85px），面板里的位置预设同样不推到头（最右 0.76 / 最左 0.24）。
 
 ## 关于 `ACTION_USER_PRESENT`
 
@@ -155,7 +201,19 @@ python verify/run_verify.py
 再拿 `KeyguardManager.isKeyguardLocked` 兜一次底。两条路谁先到谁兑现，
 `onUserPresent()` 内部清标志，不会重复问候。
 
-## 验证状态（2026-10-15，Redmi Note 11 / HyperOS / Android 17）
+## 验证状态（2026-10-15，Redmi Note 11 Pro / HyperOS / Android 17，1080×2400 @440dpi）
+
+### v2.1.0 · `verify/device_check.py` 全套 15 项通过
+
+| 项 | 判定 | 实测 |
+|---|---|---|
+| A 面板改位置 | 落点 = 面板设的比例 | 锚点 **(540,2160)**，与 0.50w/0.90h 的期望值**完全吻合** |
+| B 面板前台 | 宠物窗带 `NOT_TOUCHABLE` | `flags=0x00000238 不吃触摸`；回到桌面 → `0x00000228 可触摸` |
+| C 单击 | 完整事件链 | `按下 → 抬手 → 单击 → 状态切换 + 气泡 + 音效` |
+| D 拖动 | 位移与手势一致 | 手势 260px → 锚点位移 **-258px** |
+| E 锁定位置 | 拖它不动 | `拖动: 被位置锁拦下`，无 `拖动: 结束`（锚点没变） |
+
+### v2.0.0 第一轮
 
 真机跑通：
 

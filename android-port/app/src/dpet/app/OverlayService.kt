@@ -48,9 +48,9 @@ class OverlayService : Service() {
 
         const val ACTION_CONFIGURE = "dpet.app.CONFIGURE"
         const val ACTION_DO = "dpet.app.DO"
-        const val ACTION_PANEL = "dpet.app.PANEL"
         const val EXTRA_KIND = "kind"
-        const val EXTRA_OPEN = "open"
+        // 「面板是否在前台」不走广播，走同进程的 PanelState —— 早期那对
+        // ACTION_PANEL / EXTRA_OPEN 常量已经删掉，别再把它捡回来。
 
         /** 目标帧率。POC 实测：vsync 整数分频比墙钟定时器稳，30fps 足够。 */
         private const val TARGET_FPS = 30.0
@@ -76,6 +76,7 @@ class OverlayService : Service() {
     private var sfx: Sfx? = null
 
     private var wm: WindowManager? = null
+    private var notifManager: NotificationManager? = null
     private var petView: PetView? = null
     private var petLp: WindowManager.LayoutParams? = null
     private var bubbleView: BubbleView? = null
@@ -90,6 +91,12 @@ class OverlayService : Service() {
     private var lastDrawNs = 0L
     private var running = false
     private var bubbleHideToken = 0
+
+    /** 手指正按在宠物上（`ACTION_DOWN` 到 `ACTION_UP/CANCEL` 之间）。 */
+    private var pressed = false
+
+    /** 手势进行中被推迟掉的换尺寸请求，抬手后补做。见 [pushFrame]。 */
+    private var resizePending = false
 
     /**
      * 控制面板在前台。
@@ -198,6 +205,25 @@ class OverlayService : Service() {
                 NotificationChannel(CHAN_ID, "桌宠", NotificationManager.IMPORTANCE_MIN)
             )
         }
+        notifManager = nm
+        val notif = buildNotification()
+
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(NOTIF_ID, notif)
+        }
+    }
+
+    /**
+     * 通知栏文案跟着配置走，[updateNotification] 会在配置变化后刷一次。
+     *
+     * 为什么值得为这几行单开一个函数：宠物一旦"不吃触摸"（`passthrough` 开着，或控制面板
+     * 在前台），用户点它就是毫无反应，而屏幕上没有任何东西解释这件事 —— 只能得到一个
+     * "这软件坏了"的结论。通知栏是唯一常驻的入口，把"为什么没反应 + 去哪儿改"摆在上面，
+     * 比在别处写多少行说明都管用。
+     */
+    private fun buildNotification(): Notification {
         val pi = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
@@ -206,20 +232,32 @@ class OverlayService : Service() {
         val b = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHAN_ID)
         else @Suppress("DEPRECATION") Notification.Builder(this)
 
-        val notif = b
-            .setContentTitle("鲸鱼娘在屏幕上")
-            .setContentText("点按宠物互动 · 长按打开控制面板")
+        val title: String
+        val text: String
+        if (cfg.passthrough) {
+            title = "鲸鱼娘 · 触摸穿透中"
+            text = "它现在不接收触摸。要恢复：点这里打开面板，关掉「触摸穿透」"
+        } else if (cfg.pinPos) {
+            title = "鲸鱼娘 · 位置已锁定"
+            text = "点它照常互动；换位置去控制面板，或先关掉「锁定位置」"
+        } else {
+            title = "鲸鱼娘在屏幕上"
+            text = "点按互动 · 双击跳一下 · 长按打开控制面板 · 拖动换位置"
+        }
+
+        return b
+            .setContentTitle(title)
+            .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setContentIntent(pi)
             .setOngoing(true)
             .setShowWhen(false)
             .build()
+    }
 
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(NOTIF_ID, notif)
-        }
+    /** 配置变了就刷新通知栏文案。失败无所谓（通知权限没给就是空操作）。 */
+    private fun updateNotification() {
+        runCatching { notifManager?.notify(NOTIF_ID, buildNotification()) }
     }
 
     private fun safeBoot() {
@@ -255,8 +293,9 @@ class OverlayService : Service() {
             anchorX = cfg.posX
             anchorY = cfg.posY
         } else {
-            anchorX = sb.width() - dpF(80f)
-            anchorY = sb.height() - dpF(120f)
+            // 默认落点也在"右下角"，但避开了系统手势热区，见 PetConfig 的注释
+            anchorX = sb.width() * PetConfig.DEFAULT_X_FRAC
+            anchorY = sb.height() * PetConfig.DEFAULT_Y_FRAC
         }
 
         addPetWindow()
@@ -281,14 +320,33 @@ class OverlayService : Service() {
             onTap = { onPetTap() }
             onDoubleTap = { onPetDoubleTap() }
             onLongPress = { openPanel() }
+            onPressChanged = { down ->
+                // 触摸真的到了没有 —— 排查"点它没反应"时，这一行是第一手证据：
+                // 没有"按下"就是窗口压根没收到触摸（穿透开着 / 位置在屏幕外 / 被别的窗压住），
+                // 有"按下"却没"单击"就是手势被系统判成了滑动或取消。
+                DLog.i(if (down) "触摸: 按下" else "触摸: 抬手")
+                pressed = down
+                if (!down) flushResize()
+            }
             onDragStart = {
-                sfx?.play("grab")
-                say(Lines.pick(Lines.DRAG), null)
+                // 锁了位置就别装作在搬 —— 手指动了却毫无位移，用户只会以为程序卡了。
+                // 给一句台词，把"为什么不动"说出口。
+                if (cfg.pinPos) {
+                    DLog.i("拖动: 被位置锁拦下")
+                    say(Lines.pick(Lines.PINNED), null)
+                } else {
+                    DLog.i("拖动: 开始")
+                    sfx?.play("grab")
+                    say(Lines.pick(Lines.DRAG), null)
+                }
             }
             onDrag = { dx, dy -> onPetDrag(dx, dy) }
             onDragEnd = {
-                sfx?.play("drop")
-                cfg.savePos(anchorX, anchorY)
+                if (!cfg.pinPos) {
+                    sfx?.play("drop")
+                    cfg.savePos(anchorX, anchorY)
+                    DLog.i("拖动: 结束 锚点=(${anchorX.toInt()},${anchorY.toInt()})")
+                }
             }
         }
 
@@ -304,6 +362,10 @@ class OverlayService : Service() {
             x = Math.round(anchorX - width / 2f)
             y = Math.round(anchorY - height + p.pad)
         }
+        // 走一遍钳制：存下来的坐标是上次那台设备/那套 DPI 的物理像素，换了环境可能整只
+        // 落在屏幕外 —— 那时用户既看不到它也摸不到它，只能去清应用数据。钳制顺手把越界的
+        // 锚点反推回屏幕内（placeByAnchor 会回写 anchorX/anchorY）。
+        placeByAnchor(lp)
 
         try {
             wm!!.addView(v, lp)
@@ -339,12 +401,25 @@ class OverlayService : Service() {
         bubbleLp = lp
     }
 
-    /** 锁定时整窗 `FLAG_NOT_TOUCHABLE`：手指划过宠物会直接落到下层 app。 */
+    /**
+     * 两种"不吃触摸"的来源，都只是把整个窗口设成 `FLAG_NOT_TOUCHABLE`：
+     *
+     * * `cfg.passthrough` —— 用户自己开的"触摸穿透"，宠物变纯装饰；
+     * * `panelOpen` —— 控制面板在前台。
+     *
+     * 面板那条**不是可选项**：overlay 永远画在 Activity 之上，面板开着时宠物一定
+     * 浮在设置项上面。窗口只要还能吃触摸，它盖住的那一块控件就全废（实测：拖"大小"
+     * 滑块时滑块纹丝不动，宠物反而被拖走了）。
+     *
+     * 但这条也带来一个必须向用户解释清楚的副作用：**面板开着的时候宠物是点不动的**，
+     * 看起来浮在上面能点，其实毫无反应。所以面板里必须自带位置调节（见 MainActivity
+     * 的"位置"卡片）—— 早期版本没有，用户就只能对着一个又点不动、又没处调的宠物干瞪眼。
+     */
     private fun baseFlags(): Int {
         var f = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-        if (cfg.locked || panelOpen) f = f or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        if (cfg.passthrough || panelOpen) f = f or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
         return f
     }
 
@@ -352,7 +427,25 @@ class OverlayService : Service() {
         val lp = petLp ?: return
         val v = petView ?: return
         lp.flags = baseFlags()
+        logFlags(lp.flags)
         runCatching { wm?.updateViewLayout(v, lp) }
+    }
+
+    /**
+     * 记一行"它到底收不收触摸"。
+     *
+     * 屏幕上没有任何东西提示这件事，而 `dumpsys window windows` 又因 ROM 而异 ——
+     * 测试机（HyperOS）的 dumpsys 里**根本列不出**我们这两个 overlay 窗。
+     * 所以自己记：排查"点它没反应"时这是第一手证据，`device_check.py` 也拿它当判定依据。
+     */
+    private fun logFlags(flags: Int) {
+        DLog.i(
+            "窗口 flags=0x%08x %s".format(
+                flags,
+                if (flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE != 0) "不吃触摸"
+                else "可触摸"
+            )
+        )
     }
 
     // ------------------------------------------------------------ 帧驱动
@@ -390,10 +483,35 @@ class OverlayService : Service() {
         val st = state ?: return
         val v = petView ?: return
 
-        v.frameName = st.frame
+        val want = st.frame
+        // 手指按着的时候先把画面冻住。换帧就得换窗口尺寸（idle 347px 宽、whale 516px 宽），
+        // 而手势进行到一半去改窗口几何，有的 ROM 会直接把这一串事件判成 CANCEL ——
+        // 表现就是"点一下没反应、拖到一半断了"。抬手再一起换（见 flushResize）。
+        // 尺寸没变（比如只是眨眼那两帧）就不用冻，动画照跑。
+        if (pressed && !fitsWindow(want)) {
+            resizePending = true
+            return
+        }
+
+        v.frameName = want
         v.localT = st.localT
         if (force) v.invalidate()
-        syncWindow(st.frame)
+        syncWindow(want)
+    }
+
+    /** 当前窗口尺寸是否正好够放这一帧（帧尺寸 + 2·pad）。 */
+    private fun fitsWindow(frame: String): Boolean {
+        val p = pack ?: return true
+        val sz = p.size(frame) ?: return true
+        val lp = petLp ?: return true
+        return lp.width == sz[0] + p.pad * 2 && lp.height == sz[1] + p.pad * 2
+    }
+
+    /** 手势结束后补做被推迟的那次换尺寸。 */
+    private fun flushResize() {
+        if (!resizePending) return
+        resizePending = false
+        pushFrame(force = true)
     }
 
     /**
@@ -438,6 +556,7 @@ class OverlayService : Service() {
     }
 
     private fun onPetDrag(dx: Float, dy: Float) {
+        if (cfg.pinPos) return          // 锁了位置：手势照收（好给一句"锁着呢"），窗口不搬
         val lp = petLp ?: return
         val p = pack ?: return
         val v = petView ?: return
@@ -453,6 +572,7 @@ class OverlayService : Service() {
     private fun onPetTap() {
         lastUserNs = System.nanoTime()
         val st = state ?: return
+        DLog.i("单击（当前状态 ${st.state}）")
         when (st.state) {
             "sleep" -> {
                 st.setState("idle", force = true, cue = "")
@@ -500,6 +620,7 @@ class OverlayService : Service() {
 
     private fun openPanel() {
         lastUserNs = System.nanoTime()
+        DLog.i("长按 -> 打开控制面板")
         try {
             startActivity(
                 Intent(this, MainActivity::class.java)
@@ -610,8 +731,29 @@ class OverlayService : Service() {
             lastSyncedFrame = ""            // 强制重算窗口尺寸
         }
         lp.flags = baseFlags()
-        runCatching { wm?.updateViewLayout(v, lp) }
+        logFlags(lp.flags)                  // 面板改了「触摸穿透」时也要留痕
+        DLog.i(
+            "配置: ${cfg.sizeDp}dp 透明度=${Math.round(cfg.opacity * 100)}% " +
+                "锁定位置=${cfg.pinPos} 触摸穿透=${cfg.passthrough}"
+        )
         pushFrame(force = true)
+
+        // 位置放在**最后**做，顺序不能换：rescale 会重算每一帧的显示尺寸，窗口尺寸跟着变，
+        // 而 placeByAnchor 是拿 `lp.width/height` 反推左上角的 —— 先摆位置再 rescale，
+        // 就是"按旧尺寸摆好的窗口被换成新尺寸但没重摆"，宠物当场偏出一截。
+        // 面板里的位置滑块每动一下都走这条路，偏一点点都能看出来。
+        if (cfg.hasPos()) {
+            anchorX = cfg.posX
+            anchorY = cfg.posY
+            placeByAnchor(lp)               // 越界会被钳回来并回写 anchorX/anchorY
+            runCatching { wm?.updateViewLayout(v, lp) }
+            positionBubble()
+            DLog.i("位置: 锚点=(${anchorX.toInt()},${anchorY.toInt()}) " +
+                    "窗口=(${lp.x},${lp.y}) ${lp.width}x${lp.height}")
+        }
+
+        // 「触摸穿透 / 锁定位置」都改了通知栏文案，所以每轮配置都刷一次
+        updateNotification()
     }
 
     // ------------------------------------------------------------ 杂项

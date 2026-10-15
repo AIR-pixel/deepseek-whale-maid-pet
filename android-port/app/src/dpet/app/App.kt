@@ -2,7 +2,7 @@ package dpet.app
 
 /** 应用级常量。放在一处，免得版本号在几个文件里各写一遍。 */
 object App {
-    const val VERSION = "2.0.0"
+    const val VERSION = "2.1.0"
     const val NAME = "DeepSeek 鲸鱼娘"
 }
 

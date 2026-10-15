@@ -88,8 +88,8 @@ def main():
         out_name="pet.apk",
         min_sdk=MIN_SDK,
         target_sdk=TARGET_SDK,
-        version_code=20000,
-        version_name="2.0.0",
+        version_code=20100,
+        version_name="2.1.0",
     )
     print("\n产物: %s" % apk)
 

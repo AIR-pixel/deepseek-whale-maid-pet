@@ -3,10 +3,13 @@ package dpet.app
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
+import android.hardware.display.DisplayManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.DisplayMetrics
+import android.view.Display
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
@@ -27,6 +30,10 @@ import dpet.core.MiniJson
  *
  * 与宠物互动的常规路径**不经过这个 Activity**：单击/双击/拖拽都在悬浮窗里就地响应。
  * 面板只在"长按宠物"或"点通知"时打开，用来做一次性的设置。
+ *
+ * 例外是**位置**。面板在前台时宠物窗口是 `FLAG_NOT_TOUCHABLE` 的（见 [PanelState]），
+ * 也就是"面板开着的时候宠物点不动"—— 这是 overlay 永远画在 Activity 之上的必然结果，
+ * 不是 bug。所以位置必须能从这里改，见 buildUi 里的"位置"卡片。
  */
 class MainActivity : Activity() {
 
@@ -45,6 +52,10 @@ class MainActivity : Activity() {
 
     private var sizeValue: TextView? = null
     private var opValue: TextView? = null
+    private var posXValue: TextView? = null
+    private var posYValue: TextView? = null
+    private var posXBar: SeekBar? = null
+    private var posYBar: SeekBar? = null
 
     private val density: Float get() = resources.displayMetrics.density
 
@@ -152,6 +163,59 @@ class MainActivity : Activity() {
         col.addView(permBox)
         marginBottom(permBox, 14)
 
+        // ---------- 位置
+        //
+        // 这一块是**必需品不是锦上添花**：面板在前台时宠物窗口是 `FLAG_NOT_TOUCHABLE`
+        // （overlay 永远盖在 Activity 之上，窗口只要还吃触摸，它压住的那一块控件就全废），
+        // 所以"面板开着的时候"宠物一定是点不动的。用户想在这时给它挪个地方，只能靠这里。
+        // 早先面板里没有这一块，用户对着一个浮在设置页上、点也点不动的宠物，
+        // 得出的结论只能是"这软件坏了"。
+        col.addView(sectionLabel("位置"))
+        val posCard = linear(bg = Ui.CARD, paddingDp = 14)
+        posCard.addView(
+            textView(
+                "先挑个角落，再用两根滑块微调。改完立刻生效，退出面板后位置就定在这儿了。" +
+                    "想直接用手拖也行 —— 关掉面板拖它，拖完自动记住。",
+                11.5f, Ui.TEXT_DIM
+            )
+        )
+
+        val presetRow = linear(vertical = false)
+        presetRow.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).also { it.topMargin = dp(11) }
+        // 比例刻意不推到头（不用 0.98 / 1.0）：屏幕左右边缘约 20dp 是系统"返回手势"的
+        // 起手区，从那里起划会被系统抢走 —— 拖动会变成返回。留出来的余量见 PetConfig。
+        for ((label, fr) in listOf(
+            "右下" to (0.76f to 0.86f),
+            "左下" to (0.24f to 0.86f),
+            "中下" to (0.50f to 0.90f),
+            "右上" to (0.76f to 0.26f),
+            "左上" to (0.24f to 0.26f)
+        )) {
+            // 每个按钮一份 LayoutParams：共用一个实例在带权重的 LinearLayout 里是雷
+            presetRow.addView(
+                smallButton(label) { applyPosFrac(fr.first, fr.second) },
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    .also { it.rightMargin = dp(4) }
+            )
+        }
+        posCard.addView(presetRow)
+
+        posXValue = textView("", 13f, Ui.ACCENT)
+        posYValue = textView("", 13f, Ui.ACCENT)
+
+        val s0 = screen()
+        posXBar = addPosSlider(
+            posCard, "水平（左右）", posXValue!!, POS_X_MIN, POS_X_SPAN, posPctX(s0) - POS_X_MIN
+        ) { applyPos() }
+        posYBar = addPosSlider(
+            posCard, "竖直（脚底高度）", posYValue!!, POS_Y_MIN, POS_Y_SPAN, posPctY(s0) - POS_Y_MIN
+        ) { applyPos() }
+
+        col.addView(posCard)
+        marginBottom(posCard, 18)
+
         // ---------- 快捷动作
         shortcutLabel = sectionLabel("快捷动作")
         col.addView(shortcutLabel)
@@ -248,11 +312,19 @@ class MainActivity : Activity() {
         behavior.addView(hRule())
         behavior.addView(
             switchRow(
-                "锁定位置（触摸穿透）",
-                "开启后手指划过宠物会直接点到下面的 app，代价是不能再拖动它。" +
-                    "这是悬浮窗的取舍：系统不会把落在透明区域的触摸转发给下层窗口。",
-                cfg.locked
-            ) { cfg.locked = it; broadcastConfigure() }
+                "锁定位置",
+                "拖不动它 —— 位置只能从这个面板改，手滑碰不到。单击、双击、长按照常响应。",
+                cfg.pinPos
+            ) { cfg.pinPos = it; broadcastConfigure() }
+        )
+        behavior.addView(hRule())
+        behavior.addView(
+            switchRow(
+                "触摸穿透（纯观赏）",
+                "宠物完全不接收触摸：点它、长按它都没反应，手指直接落到下面的 app。" +
+                    "它盖住的那块区域也不再挡任何操作，代价是只剩观赏。",
+                cfg.passthrough
+            ) { cfg.passthrough = it; broadcastConfigure() }
         )
         col.addView(behavior)
         marginBottom(behavior, 18)
@@ -265,7 +337,8 @@ class MainActivity : Activity() {
         contentInfo.setPadding(0, dp(6), 0, 0)
         about.addView(contentInfo)
         val tip = textView(
-            "单击宠物逗它、双击跳一下、长按打开本面板、拖动换位置。" +
+            "单击宠物逗它、双击跳一下、长按打开本面板、关掉面板后拖它换位置。" +
+                "面板开着的时候它暂时不接收触摸（不然会挡住下面的控件），改位置用上面的滑块。" +
                 "屏幕熄灭时它会睡觉，亮起来自己醒来。",
             12f, Ui.TEXT_DIM
         )
@@ -325,6 +398,99 @@ class MainActivity : Activity() {
         return row
     }
 
+    // ------------------------------------------------------------ 位置
+
+    /**
+     * 一根位置滑块。刻度是**屏幕宽/高的百分比**，映射到锚点（宠物脚底中心）的实际像素。
+     *
+     * 起点不是 0%：宠物贴到屏幕边缘时 `placeByAnchor` 会把它钳回来，滑块再往外推
+     * 宠物也不动 —— 那看着像"滑块坏了"。索性让滑块的可达范围就是真实可达范围。
+     */
+    private fun addPosSlider(
+        card: LinearLayout,
+        label: String,
+        value: TextView,
+        lo: Int,
+        span: Int,
+        start: Int,
+        onChange: () -> Unit
+    ): SeekBar {
+        val head = linear(vertical = false)
+        head.addView(textView(label, 14.5f, Ui.TEXT), weight())
+        head.addView(value)
+        head.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ).also { it.topMargin = dp(12) }
+        card.addView(head)
+
+        val bar = SeekBar(this).apply {
+            max = span
+            progress = start.coerceIn(0, span)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
+                    value.text = "${lo + p}%"
+                    if (fromUser) onChange()
+                }
+                override fun onStartTrackingTouch(sb: SeekBar?) {}
+                override fun onStopTrackingTouch(sb: SeekBar?) {}
+            })
+        }
+        // 上面那行 progress 是在挂监听之前赋的，不会回调 —— 标签自己先写一次
+        value.text = "${lo + bar.progress}%"
+        card.addView(bar)
+        return bar
+    }
+
+    /** 滑块松手：把两个百分比换算成锚点像素写进配置，再让服务去摆窗口。 */
+    private fun applyPos() {
+        val s = screen()
+        val xf = (POS_X_MIN + (posXBar?.progress ?: 0)) / 100f
+        val yf = (POS_Y_MIN + (posYBar?.progress ?: 0)) / 100f
+        cfg.savePos(s[0] * xf, s[1] * yf)
+        broadcastConfigure()
+    }
+
+    /** 预设角落。比例值见 [PetConfig.DEFAULT_X_FRAC] 的注释（避系统手势热区）。 */
+    private fun applyPosFrac(fx: Float, fy: Float) {
+        val s = screen()
+        cfg.savePos(s[0] * fx, s[1] * fy)
+        syncPosControls()
+        broadcastConfigure()
+    }
+
+    /** 把配置里的位置回灌到两根滑块上（点完预设按钮要跟着动）。 */
+    private fun syncPosControls() {
+        val s = screen()
+        posXBar?.progress = (posPctX(s) - POS_X_MIN).coerceIn(0, POS_X_SPAN)
+        posYBar?.progress = (posPctY(s) - POS_Y_MIN).coerceIn(0, POS_Y_SPAN)
+        posXValue?.text = "${POS_X_MIN + (posXBar?.progress ?: 0)}%"
+        posYValue?.text = "${POS_Y_MIN + (posYBar?.progress ?: 0)}%"
+    }
+
+    private fun posPctX(s: IntArray): Int =
+        Math.round((if (cfg.hasPos()) cfg.posX else s[0] * PetConfig.DEFAULT_X_FRAC) / s[0] * 100f)
+
+    private fun posPctY(s: IntArray): Int =
+        Math.round((if (cfg.hasPos()) cfg.posY else s[1] * PetConfig.DEFAULT_Y_FRAC) / s[1] * 100f)
+
+    /**
+     * 真实屏幕尺寸（物理像素）。
+     *
+     * 不能用 `resources.displayMetrics`：那是**应用窗口**的尺寸，跟真实屏幕差着一个
+     * 状态栏/导航栏，换算出来的百分比会和悬浮服务（它走 DisplayManager）差 3%~5%，
+     * 点同一个预设在大屏机上落点就不一样。
+     */
+    private fun screen(): IntArray {
+        val dm = getSystemService(DisplayManager::class.java)
+        val d: Display? = dm?.getDisplay(Display.DEFAULT_DISPLAY)
+        val m = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        d?.getRealMetrics(m)
+        if (m.widthPixels > 0) return intArrayOf(m.widthPixels, m.heightPixels)
+        val f = resources.displayMetrics
+        return intArrayOf(f.widthPixels, f.heightPixels)
+    }
+
     // ------------------------------------------------------------ 状态刷新
 
     private fun refresh() {
@@ -352,6 +518,7 @@ class MainActivity : Activity() {
 
         sizeValue?.text = "${cfg.sizeDp} dp"
         opValue?.text = "${Math.round(cfg.opacity * 100)}%"
+        syncPosControls()
 
         contentInfo.text = contentSummary()
     }
@@ -429,19 +596,24 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun sendPanel(open: Boolean) {
-        sendBroadcast(
-            Intent(OverlayService.ACTION_PANEL)
-                .setPackage(packageName)
-                .putExtra(OverlayService.EXTRA_OPEN, open)
-        )
-    }
-
     private fun sendDo(kind: String) {
         sendBroadcast(
             Intent(OverlayService.ACTION_DO)
                 .setPackage(packageName)
                 .putExtra(OverlayService.EXTRA_KIND, kind)
         )
+    }
+
+    companion object {
+        /**
+         * 位置滑块的可达范围（屏幕百分比）。
+         *
+         * 上下限都不是 0/100：宠物脚底贴到屏幕边缘时 `placeByAnchor` 会把它钳回来，
+         * 滑块再往外推宠物也不动 —— 看着像"滑块坏了"。让滑块的范围就是真实可达范围。
+         */
+        private const val POS_X_MIN = 5
+        private const val POS_X_SPAN = 90        // 5% .. 95%
+        private const val POS_Y_MIN = 15
+        private const val POS_Y_SPAN = 85        // 15% .. 100%
     }
 }
