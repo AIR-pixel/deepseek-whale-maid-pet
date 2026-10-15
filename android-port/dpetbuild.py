@@ -46,6 +46,11 @@ KEYTOOL = os.path.join(JDK, "bin", "keytool.exe")
 
 DEFAULT_KEYSTORE = os.path.join(HERE, "debug.keystore")
 
+# kotlinc 的压缩包。**本机下不到**（境内拿不到 kotlin-compiler 的直链），
+# 所以它是唯一火种：解压目录 `tools/kotlinc/`（93 MB）可以随便删，
+# 这个 zip（86 MB）不能 —— 见 ensure_kotlinc()。
+KOTLIN_ZIP = os.path.join(HERE, "tools", "kotlin-compiler-2.4.20.zip")
+
 
 def log(msg):
     print("  %s" % msg, flush=True)
@@ -78,8 +83,33 @@ def run(cmd, cwd=None, env=None, check=True):
     return p
 
 
+def ensure_kotlinc():
+    """kotlinc 没解压就从同目录的 zip 里解出来。
+
+    解压目录 93 MB、压缩包 86 MB，两个都留着纯属浪费，而压缩包**本机下不到**
+    （境内拿不到 kotlin-compiler 的直链），所以 zip 必须留、目录可以删。
+    解压一次十几秒 —— 与其在"省 93 MB"和"每次手动敲解压命令"之间二选一，
+    不如让这一步自动：删了目录，下次构建自己补回来。
+    """
+    if os.path.exists(KOTLINC) and os.path.exists(KOTLIN_STDLIB):
+        return
+    if not os.path.exists(KOTLIN_ZIP):
+        print("kotlinc 未解压，而且找不到压缩包：\n  %s\n"
+              "本机下不到这个包，得从别处拷一份放进 tools/。" % KOTLIN_ZIP)
+        sys.exit(1)
+    step("解压 kotlinc（首次构建，或解压目录被删过）")
+    with zipfile.ZipFile(KOTLIN_ZIP) as z:
+        z.extractall(os.path.join(HERE, "tools"))
+    if not (os.path.exists(KOTLINC) and os.path.exists(KOTLIN_STDLIB)):
+        print("解压完了还是找不到 kotlinc，检查 zip 结构"
+              "（顶层应该直接是 kotlinc/）：\n  %s" % KOTLIN_ZIP)
+        sys.exit(1)
+    log("kotlinc 就绪 —— 这个解压目录可以随时删，下次会自动重建")
+
+
 def preflight(extra=()):
     """缺什么一次全列出来，别让用户在"改一行→重跑→再报缺一个"里循环。"""
+    ensure_kotlinc()
     need = [PLATFORM_JAR, AAPT2, D8, ZIPALIGN, APKSIGNER, KOTLINC, KOTLIN_STDLIB,
             os.path.join(JDK, "bin", "java.exe")]
     need += list(extra)
@@ -88,11 +118,6 @@ def preflight(extra=()):
         print("缺少构建依赖：")
         for m in missing:
             print("  - %s" % m)
-        if any("kotlinc" in m for m in missing):
-            print("\n提示：kotlinc 没解压的话，跑一次")
-            print("  python -c \"import zipfile;zipfile.ZipFile(r'%s').extractall(r'%s')\""
-                  % (os.path.join(HERE, "tools", "kotlin-compiler-2.4.20.zip"),
-                     os.path.join(HERE, "tools")))
         sys.exit(1)
 
 
