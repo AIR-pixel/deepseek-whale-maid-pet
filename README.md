@@ -12,7 +12,7 @@
 |---|---|
 | **Windows · 马上用，什么都不装** | [`DeepSeek-WhaleMaidPet_1.2.0_selfcontained.zip`](https://github.com/AIR-pixel/deepseek-whale-maid-pet/releases/latest/download/DeepSeek-WhaleMaidPet_1.2.0_selfcontained.zip) · 21.8 MB |
 | Windows · 机器上已有 Python 3.9+ | [`DeepSeek-WhaleMaidPet_1.2.0_source.zip`](https://github.com/AIR-pixel/deepseek-whale-maid-pet/releases/latest/download/DeepSeek-WhaleMaidPet_1.2.0_source.zip) · 752 KB |
-| **Android 手机版** | [`DeepSeek-WhaleMaidPet_Android_2.0.0.apk`](https://github.com/AIR-pixel/deepseek-whale-maid-pet/releases/latest/download/DeepSeek-WhaleMaidPet_Android_2.0.0.apk) · 1.5 MB |
+| **Android 手机版** | [`DeepSeek-WhaleMaidPet_Android_2.1.0.apk`](https://github.com/AIR-pixel/deepseek-whale-maid-pet/releases/latest/download/DeepSeek-WhaleMaidPet_Android_2.1.0.apk) · 1.5 MB |
 | 读代码 / 自己改 | `git clone` 本仓库，见下面「[运行](#运行)」 |
 
 > 附件名是 ASCII 的：GitHub 会把 Release 附件的 name 里**非 ASCII 字符替换成 `.`**
@@ -468,6 +468,10 @@ Android **不存在**"把落在透明像素上的触摸转发给下层窗口"的
 动效引擎与 Python 版共享同一份曲线数据，且必须**逐位一致**（`abs_tol=0`）：
 运算顺序照抄、用 `Math.rint`（银行家舍入，对齐 Python 的 `round()`）、手写
 `pyMod`（Kotlin 的 `%` 对负数返回负值）。改完跑 `python verify/run_verify.py`。
+
+> **位置在控制面板里调。** 面板开着时宠物是触摸穿透的（overlay 永远盖在 Activity 上，
+> 不这么设它压住的控件就全废），所以那会儿拖不动它 —— 面板里有 5 个预设和两根滑块。
+> 关掉面板后可以直接用手拖，拖完自动记住。
 
 内容包与桌面版同源（`content/actions.json` + `assets/pet/` + `assets/sfx/`），
 但手机版**没有远端更新**，只有内置那份。
