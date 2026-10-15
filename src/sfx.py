@@ -30,9 +30,6 @@ class Sfx(object):
         self.ok = False
         self.reason = ""
         self.ready = 0
-        self.played = 0
-        self.gated = 0
-        self.missed = 0
         self._fx = {}
         self._last = -1e9
         self._load()
@@ -89,15 +86,12 @@ class Sfx(object):
             return False
         fx = self._fx.get(name)
         if fx is None or fx.status() != self._QSE.Ready:
-            self.missed += 1
-            return False
+            return False                             # cue 名写错或还没就绪：静默
         now = time.monotonic()
         if now - self._last < self.gate:             # 挡掉几乎同时触发的第二条
-            self.gated += 1
             return False
         self._last = now
         fx.play()
-        self.played += 1
         return True
 
     def stop(self):

@@ -47,7 +47,7 @@
     "doze": {
       "cycle": 3.4,
       "channels": {
-        "dy": [{"k": "sink", "period": 3.4, "amp": 11.0, "hold": 0.78, "save": "sink"}],
+        "dy": [{"k": "sink", "period": 3.4, "amp": 11.0, "save": "sink"}],
         "sy": [{"k": "ref", "sig": "sink", "amp": -0.005}],
         "rot": [{"k": "ref", "sig": "sink", "amp": 0.16}]
       }
@@ -82,7 +82,7 @@
     "happy": {
       "cycle": 0.95,
       "defs": {
-        "hop": {"k": "hop", "period": 0.95, "amp": 16.0, "crouch": 0.10, "air": 0.80,
+        "hop": {"k": "hop", "period": 0.95, "amp": 16.0,
                 "crouch_amp": 2.8, "crouch_sx": 0.07, "crouch_sy": 0.08,
                 "land_sx": 0.06, "land_sy": 0.07}
       },

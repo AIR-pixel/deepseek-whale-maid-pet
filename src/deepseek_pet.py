@@ -214,9 +214,10 @@ class Bubble(QWidget):
         fm = QFontMetrics(self._font)
         pad_x, pad_y, tail = 13, 9, 7
         avail = self.MAX_W - pad_x * 2
-        # 手动折行（按像素宽度）
-        words, cur, out = list(self._text), "", []
-        for ch in words:
+        # 手动折行（按像素宽度）。逐字符累加而不是按空格断词 —— 中文没有词边界，
+        # 按空格断会得到一整行不换的字符串。
+        chars, cur, out = list(self._text), "", []
+        for ch in chars:
             if fm.horizontalAdvance(cur + ch) <= avail:
                 cur += ch
             else:
@@ -225,13 +226,17 @@ class Bubble(QWidget):
         if cur:
             out.append(cur)
         self._lines = out
-        w = max(fm.horizontalAdvance(l) for l in out) + pad_x * 2
+        w = max((fm.horizontalAdvance(l) for l in out), default=0) + pad_x * 2
         w = max(w, 76)
         h = fm.height() * len(out) + pad_y * 2
         self.resize(int(w), int(h + tail))
         self._pad_x, self._pad_y, self._tail = pad_x, pad_y, tail
 
     def show_text(self, text, duration=3600):
+        # 内容包可以在 lines 里放空串。空气泡没有意义，而且 _relayout 会对空行
+        # 列表做 max() 抛 ValueError —— 远端数据能把角色打崩，这里直接不弹。
+        if not text:
+            return
         self._text = text
         self._relayout()
         self.reposition(self._anchor)
@@ -269,22 +274,28 @@ class Bubble(QWidget):
         p.setRenderHint(QPainter.Antialiasing)
         p.setOpacity(self._op)
         w, h = self.width(), self.height() - self._tail
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), 11, 11)
-        # 尾巴
+        # 气泡本体与尾巴**合并成一个轮廓**再描边。分两个子路径时尾巴底边与气泡底边
+        # 是同一条线，会被描两次（一条更深的横线穿过尾巴根部）；
+        # united() 之后只剩最外轮廓，接缝消失。
+        body = QPainterPath()
+        body.addRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), 11, 11)
         cx = w / 2
-        path.moveTo(cx - 7, h - 1)
-        path.lineTo(cx, h + self._tail - 1)
-        path.lineTo(cx + 7, h - 1)
-        path.closeSubpath()
+        tail = QPainterPath()
+        tail.moveTo(cx - 7, h - 2)          # 略往上咬进本体，保证并集连续
+        tail.lineTo(cx, h + self._tail - 1)
+        tail.lineTo(cx + 7, h - 2)
+        tail.closeSubpath()
+        path = body.united(tail)
         p.fillPath(path, QColor(30, 39, 62, 240))
         p.setPen(QColor(126, 178, 255, 170))
         p.drawPath(path)
         p.setPen(QColor(238, 244, 255))
         p.setFont(self._font)
+        fm = QFontMetrics(self._font)
         for i, line in enumerate(self._lines):
-            p.drawText(self._pad_x, self._pad_y + (i + 1) * QFontMetrics(self._font).height() - 4,
-                       line)
+            # 用 ascent 定位基线（而不是 fm.height() 减一个经验常数）：
+            # 每行落在自己行框的正中，多行时上下留白对称。
+            p.drawText(self._pad_x, self._pad_y + i * fm.height() + fm.ascent(), line)
 
 
 # ---------------------------------------------------------------- 桌宠窗口
@@ -326,13 +337,11 @@ class PetWindow(QWidget):
         self._op = float(cfg.get("opacity", 1.0))
         self._dragging = False
         self._moved = False
+        self._suppress_drop = False
         self._press_global = QPoint()
         self._press_win = QPoint()
-        self._press_time = 0
-        self._fed = 0
         self._water_due = 45 * 60
         self._sit_due = 50 * 60
-        self._speak_on_next_idle = False
 
         # 更新相关：pending 是"已下载但还没演给用户看"的新动作
         self._pending_new = []
@@ -622,6 +631,7 @@ class PetWindow(QWidget):
         if e.button() == Qt.LeftButton:
             self._dragging = True
             self._moved = False
+            self._suppress_drop = False
             self._press_global = e.globalPos()
             self._press_win = self.pos()
             self._press_time = self._t
@@ -646,7 +656,12 @@ class PetWindow(QWidget):
         was_drag = self._moved
         self._dragging = False
         self._moved = False
-        if was_drag:
+        if self._suppress_drop:
+            # 双击之后紧跟的那次 release：既不是拖拽结束，也不该再算一次单击。
+            # 老写法把 _moved 置 True 来「避免再触发单击」，副作用是这里会多响
+            # 一声 drop —— 双击听着像「蹦一下 + 放下」，跟画面无关。
+            self._suppress_drop = False
+        elif was_drag:
             self.sfx.play("drop")
         else:
             self._on_click(e)
@@ -657,8 +672,6 @@ class PetWindow(QWidget):
             self._set_state("idle", force=True)
             self._say(random.choice(lines.WAKE), cue="wake")
             return
-        if self._state == "eat":
-            self._fed += 1
         roll = random.random()
         if self._state == "doze":
             self._set_state("happy", force=True)
@@ -685,7 +698,7 @@ class PetWindow(QWidget):
             self.sfx.play("hop")
             self._set_state("happy", force=True, cue=False)
             self._say(random.choice(lines.DBLCLICK), cue=None)
-            self._moved = True  # 避免再触发单击
+            self._suppress_drop = True      # 收尾的那次 release 既不出声也不算单击
 
     def wheelEvent(self, e):
         cur = self.cfg.get("height", 280)
@@ -897,12 +910,10 @@ class PetWindow(QWidget):
         self._save()
 
     def _toggle_autostart(self, v):
-        ok = set_autostart(bool(v))
-        if not ok:
+        # 真实状态在注册表里，cfg 里没有它的副本 —— 写失败（权限/被杀软挡）
+        # 就把勾退回真实值，不假装成功。
+        if not set_autostart(bool(v)):
             self._autostart_action.setChecked(is_autostart())
-        else:
-            self.cfg["autostart"] = bool(v)
-            self._save()
 
     def _reset_pos(self):
         sr = screen_rect()
@@ -918,7 +929,8 @@ class PetWindow(QWidget):
         self._say(f"运行 {uptime/60:.0f} 分钟 · CPU 均值 {cpu/uptime*100:.1f}% · 内存 {mem:.0f} MB", 6500)
 
     def _about(self):
-        self._say("我是 DeepSeek 的鲸鱼娘。给饭就干活。", 5000)
+        # 带上版本号：用户来反馈问题时，这句话就是最省事的一条线索
+        self._say(f"我是 DeepSeek 的鲸鱼娘。给饭就干活。（v{updater.APP_VERSION}）", 5000)
 
     # ------------------------------------------------ 内容更新
     def _pick_idle_action(self):
@@ -1132,7 +1144,7 @@ def make_tray_icon(pet: PetWindow):
     from PyQt5.QtGui import QIcon
     icon = QIcon(scaled)
     tray = QSystemTrayIcon(icon)
-    tray.setToolTip("DeepSeek 鲸鱼娘 · 桌宠")
+    tray.setToolTip(f"DeepSeek 鲸鱼娘 · 桌宠 v{updater.APP_VERSION}")
     menu = QMenu()
     menu.setFont(QFont("Microsoft YaHei UI", 9))
     a = QAction("显示 / 隐藏", menu)

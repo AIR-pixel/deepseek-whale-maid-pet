@@ -76,9 +76,6 @@ class UpdateResult:
         self.message = message or status
         self.announce = announce
 
-    def ok(self):
-        return self.status in ("updated", "up-to-date")
-
     def __repr__(self):
         return (f"<UpdateResult {self.status} v{self.version} "
                 f"added={list(self.added)} {self.message!r}>")
