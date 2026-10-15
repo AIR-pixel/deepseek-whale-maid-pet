@@ -9,6 +9,27 @@ config.local.json
 # 想重新打包：python tools/build_package.py / python tools/build_runtime.py
 dist/
 
+# ---------------------------------------------------------------- Android 移植（android-port/）
+# kotlinc 解压出来 94 MB、压缩包自身 86 MB，加上 build/ 里的中间产物
+# （apk / dex / class / 抓帧 png）。这些都能随时重新生成或重新下载 ——
+# 入库与否的差别就是「clone 要多等几分钟」。
+# debug.keystore 由 build_poc.py 的 ensure_keystore() 自动重建，也没必要入库。
+android-port/tools/kotlinc/
+android-port/tools/kotlin-compiler-*.zip
+android-port/build/
+android-port/debug.keystore
+android-port/verify/motion.jar
+
+# 跨端校验的中间数据：都是 .tsv / .json，由 verify/ 下的 gen_*.py、
+# spy_sin.py、run_verify.py 随时重建（两张 800 KB 的采样表 +
+# Python↔Kotlin 的浮点对）。跑一次 run_verify.py 就回来了，入库只是让
+# 每次 diff 都翻出两万行十六进制浮点。
+android-port/verify/kotlin_out.tsv
+android-port/verify/python_ref.tsv
+android-port/verify/sin_calls.tsv
+android-port/verify/cube_calls.tsv
+android-port/verify/motion_ref.json
+
 # ---------------------------------------------------------------- Python
 __pycache__/
 *.py[cod]

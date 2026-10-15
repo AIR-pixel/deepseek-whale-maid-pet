@@ -110,7 +110,7 @@
 
 ## 动效
 
-每个状态都有独立的运动曲线（`src/motion.py`），全部由**同一张立绘实时变换**得到，
+每个状态都有独立的运动曲线（数据在 `content/actions.json`，引擎在 `src/motion.py`），全部由**同一张立绘实时变换**得到，
 帧间零漂移——不会像 AI 生成序列帧那样五官乱跳、描边闪烁。
 
 | 状态 | 动效 |
@@ -241,12 +241,13 @@ python tools/motion_regression.py check ref.json    # 改之后逐点比对
 
 之后所有开着"接收新内容"的用户，下次启动就会自动拿到。
 
-> **`content/` 里的 `.json` 必须是 LF 行尾。** 仓库的 `.gitattributes` 有 `* text=auto`，
-> `git add` 时会把 CRLF 规范化成 LF，所以**远端拿到的永远是 LF**；而清单里的 SHA256
-> 是拿本地文件算的。本地一旦是 CRLF，客户端下回来一比对就不符，`updater` 会判
-> "校验不通过"把整包丢掉——而且**静默**，用户那边只是永远收不到新内容。
-> 发布工具现在会强制以 LF 写出，并在发布前逐文件查 `\r`、命中就中止，
-> 所以正常情况下不会踩到；手工改过 `content/*.json` 后跑一次 `--check` 就能确认。
+> **`content/` 里的 `.json` 必须是 LF 行尾。** 清单里的 SHA256 是拿本地字节算的，
+> 而 `.gitattributes` 默认按平台转行尾：Windows 上不特别声明就会检出成 CRLF，
+> 于是"本地算哈希的那份"与"远端下发的那份"不是同一串字节，客户端一比对就判
+> "校验不通过"、把整包丢掉——而且**静默**，用户那边只是永远收不到新内容。
+> 现在 `content/*.json` 已钉死 `eol=lf`（本地与远端都是 LF，哈希天然一致），
+> 发布工具也会强制以 LF 写出、逐文件查 `\r`，两道保险。
+> 手工改过 `content/*.json` 后跑一次 `--check` 就能确认。
 
 一个新动作的最小样子：
 
@@ -439,9 +440,10 @@ Unicode 路径从 PyQt5 包的位置手动 `addLibraryPath()`。Python 的 str�
 ## 自定义
 
 - **加台词**：编辑 `src/lines.py` 里对应的列表即可，重启生效。
-- **换素材**：把图片放进 `assets/pet/`，在 `manifest.json` 登记，并在
-  `src/deepseek_pet.py` 的 `STATES` 里引用名字。
-- **改默认大小**：`STATES` 上方的 `DEFAULT_CFG["height"]`。
+- **换素材 / 加动作**：不用改 Python —— 素材声明、动效曲线、触发条件三样
+  现在都在 `content/actions.json` 里（见「[怎么发一批新内容](#怎么发一批新内容)」）。
+  `src/deepseek_pet.py` 里已经没有任何写死的状态表了。
+- **改默认大小**：`src/deepseek_pet.py` 顶部的 `DEFAULT_CFG["height"]`。
 - **调空闲阈值**：`_tick()` 中 `idle > 600`（睡觉）/ `idle > 180`（犯困）。
 - **调音效风格**：`tools/make_sfx.py`——泛音比、滑音方向、衰减曲线、每条的目标峰值；
   改完重跑一次即可。想让自发小动作也出声：`deepseek_pet.py` 的 `AUTO_CUE = True`。
