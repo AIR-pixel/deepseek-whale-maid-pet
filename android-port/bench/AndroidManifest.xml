@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  性能基准 APK（`build_bench.py` 用）。
+
+  与正式手机版（`app/AndroidManifest.xml`）分开，是刻意的：基准里那两个组件
+  （全屏轮播 / 固定位置悬浮窗）**没有任何交互**，混进正式包会让桌面出现两个图标，
+  而它们要回答的问题（帧驱动怎么选、引擎每帧几微秒、悬浮窗在 HyperOS 上让不让
+  addView）在 2026-10-15 那一轮已经问完了。源码留着是为了结论可复核、可重跑。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dpet.benchui">
+
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="37" />
+
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:label="PetBench"
+        android:debuggable="true"
+        android:allowBackup="false"
+        android:hardwareAccelerated="true">
+
+        <!-- 全屏基准（帧驱动对照用） -->
+        <activity
+            android:name="dpet.benchui.PetPerfActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|density|uiMode"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 悬浮窗基准启动器：起完服务即退 -->
+        <activity
+            android:name="dpet.benchui.OverlayLauncherActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <service
+            android:name="dpet.benchui.PetOverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="desktop pet overlay benchmark" />
+        </service>
+
+    </application>
+
+</manifest>

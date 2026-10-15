@@ -24,7 +24,7 @@ import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROJ = os.path.dirname(HERE)                      # deepseek-pet/
-BUILD = os.path.join(HERE, "build")
+BUILD = os.path.join(HERE, "bench", "build")
 
 SDK = r"C:\Users\air\AppData\Local\Android\Sdk"
 BUILD_TOOLS = os.path.join(SDK, "build-tools", "37.0.0")
@@ -41,11 +41,11 @@ ZIPALIGN = os.path.join(BUILD_TOOLS, "zipalign.exe")
 APKSIGNER = os.path.join(BUILD_TOOLS, "apksigner.bat")
 KEYTOOL = os.path.join(JDK, "bin", "keytool.exe")
 
-MIN_SDK = "24"
+MIN_SDK = "26"
 TARGET_SDK = "37"
 KEYSTORE = os.path.join(HERE, "debug.keystore")
 
-SRC_DIRS = [os.path.join(HERE, "core"), os.path.join(HERE, "app", "src")]
+SRC_DIRS = [os.path.join(HERE, "core"), os.path.join(HERE, "bench", "src")]
 
 
 def log(msg):
@@ -116,7 +116,7 @@ def link_resources(assets_dir):
     out = os.path.join(BUILD, "base.apk")
     cmd = [AAPT2, "link",
            "-I", PLATFORM_JAR,
-           "--manifest", os.path.join(HERE, "app", "AndroidManifest.xml"),
+           "--manifest", os.path.join(HERE, "bench", "AndroidManifest.xml"),
            "-A", assets_dir,
            "--min-sdk-version", MIN_SDK,
            "--target-sdk-version", TARGET_SDK,
@@ -195,7 +195,7 @@ def sign_and_align(unsigned_apk):
     aligned = os.path.join(BUILD, "aligned.apk")
     run([ZIPALIGN, "-f", "-p", "4", unsigned_apk, aligned])
 
-    out = os.path.join(BUILD, "petperf.apk")
+    out = os.path.join(BUILD, "petbench.apk")
     if os.path.exists(out):
         os.remove(out)
     run([APKSIGNER, "sign", "--ks", KEYSTORE,
@@ -204,7 +204,7 @@ def sign_and_align(unsigned_apk):
 
     v = run([APKSIGNER, "verify", "--print-certs", out])
     log("签名校验: %s" % (v.stdout or "").strip().splitlines()[-1])
-    log("petperf.apk = %.1f KB" % (os.path.getsize(out) / 1024.0))
+    log("petbench.apk = %.1f KB" % (os.path.getsize(out) / 1024.0))
     return out
 
 
@@ -216,8 +216,9 @@ RUN_SECONDS = 70
 
 # 悬浮窗：3 个降帧档各 8s + 起窗延迟 0.8s + 引擎基准约 2s，留余量
 OVERLAY_SECONDS = 40
-REMOTE_OUT = "/sdcard/Android/data/dpet.poc/files/perf.txt"
-REMOTE_OVL = "/sdcard/Android/data/dpet.poc/files/overlay.txt"
+PKG = "dpet.benchui"
+REMOTE_OUT = "/sdcard/Android/data/%s/files/perf.txt" % PKG
+REMOTE_OVL = "/sdcard/Android/data/%s/files/overlay.txt" % PKG
 
 
 def collect():
@@ -225,8 +226,8 @@ def collect():
 
     刻意合并成一次调用：沙箱里 adb server 每条命令都会重启，拆开很慢。
     """
-    adb(["shell", "am", "force-stop", "dpet.poc"], check=False)
-    adb(["shell", "am", "start", "-n", "dpet.poc/.PetPerfActivity"])
+    adb(["shell", "am", "force-stop", PKG], check=False)
+    adb(["shell", "am", "start", "-n", "%s/.PetPerfActivity" % PKG])
     print("  等待 %ds（warmup/timer25/vsync60/decim30/decim20/stress/engine）..."
           % RUN_SECONDS, flush=True)
     time.sleep(RUN_SECONDS)
@@ -240,12 +241,12 @@ def collect_overlay():
     不需要 GUI 交互。国产 ROM 另有"后台弹出界面"之类的自有开关，那一步绕不过，
     所以 addView 是否成功必须记录在结果里。
     """
-    adb(["shell", "am", "force-stop", "dpet.poc"], check=False)
-    adb(["shell", "appops", "set", "dpet.poc", "SYSTEM_ALERT_WINDOW", "allow"], check=False)
-    p = adb(["shell", "appops", "get", "dpet.poc", "SYSTEM_ALERT_WINDOW"], check=False)
+    adb(["shell", "am", "force-stop", PKG], check=False)
+    adb(["shell", "appops", "set", PKG, "SYSTEM_ALERT_WINDOW", "allow"], check=False)
+    p = adb(["shell", "appops", "get", PKG, "SYSTEM_ALERT_WINDOW"], check=False)
     log("appops SYSTEM_ALERT_WINDOW: %s" % (p.stdout or "").strip())
 
-    adb(["shell", "am", "start", "-n", "dpet.poc/.OverlayLauncherActivity"])
+    adb(["shell", "am", "start", "-n", "%s/.OverlayLauncherActivity" % PKG])
     print("  等待 %ds（ovl60 / ovl30 / ovl20 / engine）..." % OVERLAY_SECONDS, flush=True)
     time.sleep(OVERLAY_SECONDS)
     pull_and_print(REMOTE_OVL, "overlay.txt", "PETOVL")

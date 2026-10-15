@@ -17,6 +17,8 @@ dist/
 android-port/tools/kotlinc/
 android-port/tools/kotlin-compiler-*.zip
 android-port/build/
+android-port/app/build/
+android-port/bench/build/
 android-port/debug.keystore
 android-port/verify/motion.jar
 

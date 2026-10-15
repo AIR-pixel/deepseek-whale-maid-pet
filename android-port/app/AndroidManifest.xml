@@ -1,43 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="dpet.poc">
+    package="dpet.app">
 
-    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="37" />
-
-    <!-- 悬浮窗：受控权限，需要 appops set 或用户在设置里授权 -->
+    <!-- 悬浮窗：受控权限，用户必须在系统设置里手动打开（国产 ROM 还常另有一个同名开关） -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <!-- 前台服务宿主：常驻宠物必须挂在 FGS 上，否则随时被回收 -->
+    <!-- 常驻宠物必须挂在 FGS 上，否则随时被系统回收 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- Android 13+ 前台服务通知要用户授权才显示 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
-        android:label="PetPerf"
-        android:debuggable="true"
+        android:label="鲸鱼娘"
         android:allowBackup="false"
-        android:hardwareAccelerated="true">
+        android:hardwareAccelerated="true"
+        android:supportsRtl="false">
 
-        <!-- 全屏基准（帧驱动对照用） -->
         <activity
-            android:name="dpet.poc.PetPerfActivity"
+            android:name="dpet.app.MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|density|uiMode"
-            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
+            android:theme="@android:style/Theme.Material.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- 悬浮窗启动器：起完服务即退 -->
-        <activity
-            android:name="dpet.poc.OverlayLauncherActivity"
-            android:exported="true"
-            android:excludeFromRecents="true"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
-
         <service
-            android:name="dpet.poc.PetOverlayService"
+            android:name="dpet.app.OverlayService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property

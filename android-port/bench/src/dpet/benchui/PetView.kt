@@ -1,4 +1,4 @@
-package dpet.poc
+package dpet.benchui
 
 import android.content.Context
 import android.graphics.Bitmap

@@ -1,4 +1,4 @@
-package dpet.poc
+package dpet.benchui
 
 import android.app.Activity
 import android.os.Bundle

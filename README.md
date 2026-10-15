@@ -324,6 +324,15 @@ deepseek-pet/
 │   ├── build_package.py     # 打源码便携包（zip）+ 六项自检
 │   ├── build_runtime.py     # 打自包含便携包（含精简 Python + PyQt5）+ 八项自检
 │   └── accept_package.py    # 端到端验收：解包 → 用包内启动器真跑起来
+├── android-port/            # Android 手机版（免 Gradle 手工构建链）
+│   ├── app/                 # 正式版：包名 dpet.app
+│   ├── bench/               # 基准测试版：包名 dpet.benchui
+│   ├── core/                # 跨端共享：动效解释器 + 极简 JSON
+│   ├── verify/              # 跨端动效一致性校验（Python ↔ Kotlin，abs_tol=0）
+│   ├── dpetbuild.py         # 构建公共链（aapt2 → kotlinc → d8 → 签名/对齐）
+│   ├── build_app.py         # 构建正式版 + 装机
+│   ├── build_poc.py         # 构建基准测试版
+│   └── README.md            # 手机版专属说明（架构 / 纪律 / 设备坑）
 ├── LICENSE                  # 代码许可：MIT
 └── LICENSE-ASSETS           # 立绘素材许可：CC BY-NC-SA 4.0
 ```
@@ -436,6 +445,35 @@ Unicode 路径从 PyQt5 包的位置手动 `addLibraryPath()`。Python 的 str�
 > 打包用哪个解释器跑不影响产物（包里不含 Python）。
 > 想手动指定：`python tools/accept_package.py --pyw <pythonw.exe 路径>`；
 > 想强制用本机解释器测：加 `--use-override`。
+
+## Android 手机版
+
+`android-port/` 是手机端移植，**刻意不用 Gradle** —— 构建链是手写的
+`aapt2 → kotlinc → d8 → zipalign → apksigner`，一轮约 10 秒。代价是**没有资源
+编译器**，所以整套 UI 是纯代码搭的：零 `res/layout`、零 `res/drawable`、零
+AndroidX。色板、圆角、控件全在 `app/src/dpet/app/Ui.kt` 里现拼。
+
+```bash
+cd android-port
+python build_app.py --run      # 构建 + 装机 + 打开控制面板
+```
+
+宠物是**一个前台服务带两个悬浮窗**：宠物窗可触摸，尺寸严格等于「当前帧 +
+2×动效余量」；气泡窗宽得多但永远 `FLAG_NOT_TOUCHABLE`。之所以要拆，是因为
+Android **不存在**"把落在透明像素上的触摸转发给下层窗口"的机制（桌面版是靠
+`QRegion` 掩码做到的），一个窗口只能整体收或不收触摸。窗口按脚底锚点摆放，
+所以换帧（idle 380px 宽 → whale 724px 宽）时宠物在屏幕上不会漂。
+
+动效引擎与 Python 版共享同一份曲线数据，且必须**逐位一致**（`abs_tol=0`）：
+运算顺序照抄、用 `Math.rint`（银行家舍入，对齐 Python 的 `round()`）、手写
+`pyMod`（Kotlin 的 `%` 对负数返回负值）。改完跑 `python verify/run_verify.py`。
+
+内容包与桌面版同源（`content/actions.json` + `assets/pet/` + `assets/sfx/`），
+但手机版**没有远端更新**，只有内置那份。
+
+详细的目录说明、动效移植纪律、以及一堆实测踩出来的设备坑（HyperOS 拦
+`adb install` 的绕法、`logcat` 不可用因而自建落盘日志、重装重置悬浮窗授权、
+`input tap` 的各种 quirk），见 **[android-port/README.md](android-port/README.md)**。
 
 ## 自定义
 

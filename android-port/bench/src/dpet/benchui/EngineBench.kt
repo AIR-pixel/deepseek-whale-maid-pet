@@ -1,4 +1,4 @@
-package dpet.poc
+package dpet.benchui
 
 import dpet.core.MotionSet
 import java.util.Locale
